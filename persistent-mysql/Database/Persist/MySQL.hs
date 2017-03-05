@@ -123,6 +123,7 @@ open' ci logFunc = do
         , connRDBMS      = "mysql"
         , connLimitOffset = decorateSQLWithLimitOffset "LIMIT 18446744073709551615"
         , connLogFunc    = logFunc
+        , connMaxParams = Nothing
         }
 
 -- | Set autocommit setting
@@ -462,7 +463,7 @@ getColumns connectInfo getter def = do
     stmtIdClmn <- getter "SELECT COLUMN_NAME, \
                                  \IS_NULLABLE, \
                                  \DATA_TYPE, \
-                                 \COLUMN_DEFAULT \
+                                 \IF(IS_NULLABLE='YES', COALESCE(COLUMN_DEFAULT, 'NULL'), COLUMN_DEFAULT) \
                           \FROM INFORMATION_SCHEMA.COLUMNS \
                           \WHERE TABLE_SCHEMA = ? \
                             \AND TABLE_NAME   = ? \
@@ -478,7 +479,7 @@ getColumns connectInfo getter def = do
                                \CHARACTER_MAXIMUM_LENGTH, \
                                \NUMERIC_PRECISION, \
                                \NUMERIC_SCALE, \
-                               \COLUMN_DEFAULT \
+                               \IF(IS_NULLABLE='YES', COALESCE(COLUMN_DEFAULT, 'NULL'), COLUMN_DEFAULT) \
                         \FROM INFORMATION_SCHEMA.COLUMNS \
                         \WHERE TABLE_SCHEMA = ? \
                           \AND TABLE_NAME   = ? \
@@ -944,9 +945,9 @@ mockMigrate _connectInfo allDefs _getter val = do
     let name = entityDB val
     let (newcols, udefs, fdefs) = mkColumns allDefs val
     let udspair = map udToPair udefs
-    case ([], [], partitionEithers []) of
+    case () of
       -- Nothing found, create everything
-      ([], [], _) -> do
+      () -> do
         let uniques = flip concatMap udspair $ \(uname, ucols) ->
                       [ AlterTable name $
                         AddUniqueConstraint uname $
@@ -959,6 +960,7 @@ mockMigrate _connectInfo allDefs _getter val = do
                                         in AlterColumn name (foreignRefTableDBName fdef, AddReference (foreignRefTableDBName fdef) (foreignConstraintNameDBName fdef) childfields parentfields)) fdefs
 
         return $ Right $ map showAlterDb $ (addTable newcols val): uniques ++ foreigns ++ foreignsAlt
+    {- FIXME redundant, why is this here? The whole case expression is weird
       -- No errors and something found, migrate
       (_, _, ([], old')) -> do
         let excludeForeignKeys (xs,ys) = (map (\c -> case cReference c of
@@ -972,6 +974,7 @@ mockMigrate _connectInfo allDefs _getter val = do
         return $ Right $ map showAlterDb $ acs' ++ ats'
       -- Errors
       (_, _, (errs, _)) -> return $ Left errs
+    -}
 
       where
         findTypeAndMaxLen tblName col = let (col', ty) = findTypeOfColumn allDefs tblName col
@@ -994,7 +997,6 @@ mockMigration mig = do
                                                         },
                              connInsertManySql = Nothing,
                              connInsertSql = undefined,
-                             connUpsertSql = Nothing,
                              connStmtMap = smap,
                              connClose = undefined,
                              connMigrateSql = mockMigrate undefined,
@@ -1005,7 +1007,9 @@ mockMigration mig = do
                              connNoLimit = undefined,
                              connRDBMS = undefined,
                              connLimitOffset = undefined,
-                             connLogFunc = undefined}
-      result = runReaderT . runWriterT . runWriterT $ mig
+                             connLogFunc = undefined,
+                             connUpsertSql = undefined,
+                             connMaxParams = Nothing}
+      result = runReaderT . runWriterT . runWriterT $ mig 
   resp <- result sqlbackend
   mapM_ T.putStrLn $ map snd $ snd resp

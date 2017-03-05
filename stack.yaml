@@ -1,4 +1,4 @@
-resolver: lts-6.30
+resolver: lts-8.2
 packages:
   - ./persistent
   - ./persistent-template
@@ -8,27 +8,3 @@ packages:
   - ./persistent-mysql
   - ./persistent-postgresql
   - ./persistent-redis
-  # - ./persistent-zookeeper
-
-extra-deps:
-  - aeson-compat-0.3.5.1
-  - recursion-schemes-4.1.2
-  - aeson-1.0.0.0
-  - attoparsec-0.13.0.1
-  - http-api-data-0.2
-  - time-parsers-0.1.0.0
-  - fail-4.9.0.0
-  - base-compat-0.9.1
-  - scientific-0.3.4.9
-  - semigroups-0.18.2
-  - mysql-haskell-0.8.0.0
-  - binary-ieee754-0.1.0.0
-  - binary-parsers-0.2.3.0
-  - tcp-streams-0.6.0.0
-  - wire-streams-0.1.1.0
-  - word24-2.0.1
-  - binary-0.8.4.1
-
-flags:
-  semigroups:
-    bytestring-builder: false
