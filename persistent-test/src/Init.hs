@@ -239,16 +239,16 @@ runConn f = do
 #    ifdef WITH_MYSQL
     _ <- if not travis
       then withMySQLPool defaultConnectInfo
-                        { connectHost     = "localhost"
-                        , connectUser     = "test"
-                        , connectPassword = "test"
-                        , connectDatabase = "test"
+                        { ciHost     = "localhost"
+                        , ciUser     = "test"
+                        , ciPassword = "test"
+                        , ciDatabase = "test"
                         } 1 $ runSqlPool f
       else withMySQLPool defaultConnectInfo
-                        { connectHost     = "localhost"
-                        , connectUser     = "travis"
-                        , connectPassword = ""
-                        , connectDatabase = "persistent"
+                        { ciHost     = "localhost"
+                        , ciUser     = "travis"
+                        , ciPassword = ""
+                        , ciDatabase = "persistent"
                         } 1 $ runSqlPool f
 #    else
     _<-withSqlitePool sqlite_database 1 $ runSqlPool f

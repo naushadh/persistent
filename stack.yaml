@@ -1,4 +1,4 @@
-resolver: lts-5.1
+resolver: lts-6.30
 packages:
   - ./persistent
   - ./persistent-template
@@ -21,6 +21,13 @@ extra-deps:
   - base-compat-0.9.1
   - scientific-0.3.4.9
   - semigroups-0.18.2
+  - mysql-haskell-0.8.0.0
+  - binary-ieee754-0.1.0.0
+  - binary-parsers-0.2.3.0
+  - tcp-streams-0.6.0.0
+  - wire-streams-0.1.1.0
+  - word24-2.0.1
+  - binary-0.8.4.1
 
 flags:
   semigroups:
