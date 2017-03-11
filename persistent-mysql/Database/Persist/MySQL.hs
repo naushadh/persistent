@@ -6,16 +6,19 @@
 {-# LANGUAGE StandaloneDeriving #-}
 
 -- | A MySQL backend for @persistent@.
-module Database.Persist.MySQL (
-    withMySQLPool
-  , withMySQLConn
-  , createMySQLPool
-  , module Database.Persist.Sql
-  , MySQL.ConnectInfo(..)
-  , MySQL.defaultConnectInfo
-  , MySQLConf(..)
-  , mockMigration
-) where
+module Database.Persist.MySQL
+    ( withMySQLPool
+    , withMySQLConn
+    , createMySQLPool
+    , module Database.Persist.Sql
+    , ConnectInfo(..)
+    , defaultConnectInfo
+    , MySQLConf(..)
+    , mockMigration
+    , MySQLTLS.TrustedCAStore
+    , MySQLTLS.makeClientParams
+    , MySQLTLS.makeClientParams'
+    ) where
 
 import Control.Arrow
 import Control.Monad (void)
@@ -39,8 +42,10 @@ import qualified Data.Text.IO as T
 import Text.Read (readMaybe)
 import System.Environment (getEnvironment)
 import Data.Acquire (Acquire, mkAcquire, with)
+import Data.Typeable (Typeable)
+import Data.Word (Word16)
 
-import Data.Conduit
+import Data.Conduit hiding (connect)
 import qualified Data.ByteString.Lazy as BS
 import qualified Data.Conduit.List as CL
 import qualified Data.Map as Map
@@ -51,11 +56,13 @@ import Database.Persist.Sql
 import Database.Persist.Sql.Types.Internal (mkPersistBackend)
 import Data.Int (Int64)
 
-import qualified Database.MySQL.Base as MySQL
-import qualified System.IO.Streams as Streams
-import qualified Data.Time.Calendar as Time
-import qualified Data.Time.LocalTime as Time
-import qualified Data.ByteString.Char8 as BSC
+import qualified Database.MySQL.Base    as MySQL
+import qualified Database.MySQL.TLS     as MySQLTLS
+import qualified System.IO.Streams      as Streams
+import qualified Data.Time.Calendar     as Time
+import qualified Data.Time.LocalTime    as Time
+import qualified Network.TLS            as TLS
+import qualified Data.ByteString.Char8  as BSC
 
 import Control.Monad.Trans.Control (MonadBaseControl)
 import Control.Monad.Trans.Resource (runResourceT)
@@ -65,7 +72,7 @@ import Control.Monad.Trans.Resource (runResourceT)
 -- it.  Note that you should not use the given 'ConnectionPool'
 -- outside the action since it may be already been released.
 withMySQLPool :: (MonadIO m, MonadLogger m, MonadBaseControl IO m, IsSqlBackend backend)
-              => MySQL.ConnectInfo
+              => ConnectInfo
               -- ^ Connection information.
               -> Int
               -- ^ Number of connections to be kept open in the pool.
@@ -79,7 +86,7 @@ withMySQLPool ci = withSqlPool $ open' ci
 -- responsibility to properly close the connection pool when
 -- unneeded.  Use 'withMySQLPool' for automatic resource control.
 createMySQLPool :: (MonadBaseControl IO m, MonadIO m, MonadLogger m, IsSqlBackend backend)
-                => MySQL.ConnectInfo
+                => ConnectInfo
                 -- ^ Connection information.
                 -> Int
                 -- ^ Number of connections to be kept open in the pool.
@@ -90,7 +97,7 @@ createMySQLPool ci = createSqlPool $ open' ci
 -- | Same as 'withMySQLPool', but instead of opening a pool
 -- of connections, only one connection is opened.
 withMySQLConn :: (MonadBaseControl IO m, MonadIO m, MonadLogger m, IsSqlBackend backend)
-              => MySQL.ConnectInfo
+              => ConnectInfo
               -- ^ Connection information.
               -> (backend -> m a)
               -- ^ Action to be executed that uses the connection.
@@ -100,9 +107,9 @@ withMySQLConn = withSqlConn . open'
 
 -- | Internal function that opens a connection to the MySQL
 -- server.
-open' :: (IsSqlBackend backend) => MySQL.ConnectInfo -> LogFunc -> IO backend
+open' :: (IsSqlBackend backend) => ConnectInfo -> LogFunc -> IO backend
 open' ci logFunc = do
-    conn <- MySQL.connect ci
+    conn <- connect ci
     autocommit' conn False -- disable autocommit!
     smap <- newIORef $ Map.empty
     return . mkPersistBackend $ SqlBackend
@@ -200,7 +207,6 @@ withStmt' conn query vals = do
     fetchRows result = liftIO $ do
       -- Find out the type of the columns
       (fields, is) <- result
-      -- let getters = [ maybe PersistNull (getGetter f f . Just) | f <- fields]
       let getters = fmap getGetter fields
           convert = use getters
             where use (g:gs) (col:cols) =
@@ -243,7 +249,6 @@ newtype P = P PersistValue
 instance MySQL.QueryParam P where
   render (P (PersistText t))        = MySQL.putTextField $ MySQL.MySQLText t
   render (P (PersistByteString b))  = MySQL.putTextField $ MySQL.MySQLBytes b
-  -- render (P (PersistByteString b))  = putInQuotes $ putByteString b
   render (P (PersistInt64 i))       = MySQL.putTextField $ MySQL.MySQLInt64 i
   render (P (PersistDouble d))      = MySQL.putTextField $ MySQL.MySQLDouble d
   render (P (PersistBool b))        = MySQL.putTextField $ encodeBool b
@@ -310,7 +315,7 @@ getGetter field = case (MySQL.columnLength field) of
 
 -- | Create the migration plan for the given 'PersistEntity'
 -- @val@.
-migrate' :: MySQL.ConnectInfo
+migrate' :: ConnectInfo
          -> [EntityDef]
          -> (Text -> IO Statement)
          -> EntityDef
@@ -452,7 +457,7 @@ udToPair ud = (uniqueDBName ud, map snd $ uniqueFields ud)
 
 -- | Returns all of the 'Column'@s@ in the given table currently
 -- in the database.
-getColumns :: MySQL.ConnectInfo
+getColumns :: ConnectInfo
            -> (Text -> IO Statement)
            -> EntityDef
            -> IO ( [Either Text (Either Column (DBName, [DBName]))] -- ID column
@@ -503,7 +508,7 @@ getColumns connectInfo getter def = do
     -- Return both
     return (ids, cs ++ us)
   where
-    vals = [ PersistText $ T.decodeUtf8 $ MySQL.ciDatabase connectInfo
+    vals = [ PersistText $ T.pack $ connectDatabase connectInfo
            , PersistText $ unDBName $ entityDB def
            , PersistText $ unDBName $ fieldDB $ entityId def ]
 
@@ -523,7 +528,7 @@ getColumns connectInfo getter def = do
 
 
 -- | Get the information about a column in a table.
-getColumn :: MySQL.ConnectInfo
+getColumn :: ConnectInfo
           -> (Text -> IO Statement)
           -> DBName
           -> [PersistValue]
@@ -561,10 +566,10 @@ getColumn connectInfo getter tname [ PersistText cname
                               \AND REFERENCED_TABLE_SCHEMA = ? \
                             \ORDER BY CONSTRAINT_NAME, \
                                      \COLUMN_NAME"
-      let vars = [ PersistText $ T.decodeUtf8 $ MySQL.ciDatabase connectInfo
+      let vars = [ PersistText $ T.pack $ connectDatabase connectInfo
                  , PersistText $ unDBName $ tname
                  , PersistText cname
-                 , PersistText $ T.decodeUtf8 $ MySQL.ciDatabase connectInfo ]
+                 , PersistText $ T.pack $ connectDatabase connectInfo ]
       cntrs <- with (stmtQuery stmt vars) ($$ CL.consume)
       ref <- case cntrs of
                [] -> return Nothing
@@ -877,14 +882,11 @@ escapeDBName (DBName s) = '`' : go (T.unpack s)
 -- using @persistent@'s generic facilities.  These values are the
 -- same that are given to 'withMySQLPool'.
 data MySQLConf = MySQLConf
-    { myConnInfo :: MySQL.ConnectInfo
+    { myConnInfo :: ConnectInfo
       -- ^ The connection information.
     , myPoolSize :: Int
       -- ^ How many connections should be held on the connection pool.
     } deriving Show
-
--- TODO: submit a PR to mysql-haskell to add SHOW instance
-deriving instance Show MySQL.ConnectInfo
 
 instance FromJSON MySQLConf where
     parseJSON v = modifyFailure ("Persistent: error loading MySQL conf: " ++) $
@@ -895,12 +897,12 @@ instance FromJSON MySQLConf where
         user     <- o .: "user"
         password <- o .: "password"
         pool     <- o .: "poolsize"
-        let ci = MySQL.defaultConnectInfo
-                   { MySQL.ciHost     = host
-                   , MySQL.ciPort     = read port
-                   , MySQL.ciUser     = BSC.pack user
-                   , MySQL.ciPassword = BSC.pack password
-                   , MySQL.ciDatabase = BSC.pack database
+        let ci = defaultConnectInfo
+                   { connectHost     = host
+                   , connectPort     = port
+                   , connectUser     = user
+                   , connectPassword = password
+                   , connectDatabase = database
                    }
         return $ MySQLConf ci pool
 
@@ -917,26 +919,26 @@ instance PersistConfig MySQLConf where
 
     applyEnv conf = do
         env <- getEnvironment
-        let maybeEnv old var = maybe old id $ fmap BSC.pack $ lookup ("MYSQL_" ++ var) env
+        let maybeEnv old var = maybe old id $ lookup ("MYSQL_" ++ var) env
         return conf
           { myConnInfo =
               case myConnInfo conf of
-                MySQL.ConnectInfo
-                  { MySQL.ciHost     = host
-                  , MySQL.ciPort     = port
-                  , MySQL.ciUser     = user
-                  , MySQL.ciPassword = password
-                  , MySQL.ciDatabase = database
+                ConnectInfo
+                  { connectHost     = host
+                  , connectPort     = port
+                  , connectUser     = user
+                  , connectPassword = password
+                  , connectDatabase = database
                   } -> (myConnInfo conf)
-                         { MySQL.ciHost     = BSC.unpack $ maybeEnv (BSC.pack host) "HOST"
-                         , MySQL.ciPort     = read (BSC.unpack $ maybeEnv (BSC.pack $ show port) "PORT")
-                         , MySQL.ciUser     = maybeEnv user "USER"
-                         , MySQL.ciPassword = maybeEnv password "PASSWORD"
-                         , MySQL.ciDatabase = maybeEnv database "DATABASE"
+                         { connectHost     = maybeEnv host "HOST"
+                         , connectPort     = read $ maybeEnv (show port) "PORT"
+                         , connectUser     = maybeEnv user "USER"
+                         , connectPassword = maybeEnv password "PASSWORD"
+                         , connectDatabase = maybeEnv database "DATABASE"
                          }
           }
 
-mockMigrate :: MySQL.ConnectInfo
+mockMigrate :: ConnectInfo
          -> [EntityDef]
          -> (Text -> IO Statement)
          -> EntityDef
@@ -1013,3 +1015,41 @@ mockMigration mig = do
       result = runReaderT . runWriterT . runWriterT $ mig 
   resp <- result sqlbackend
   mapM_ T.putStrLn $ map snd $ snd resp
+
+-- * Compatibility API to bridge mysql-haskell connection parameter to look like mysql-simple.
+
+data ConnectInfo = ConnectInfo {
+    connectHost     :: String
+  , connectPort     :: Word16
+  , connectUser     :: String
+  , connectPassword :: String
+  , connectDatabase :: String
+  , connectTLS      :: Maybe TLS.ClientParams
+  } deriving (Show, Typeable)
+
+-- | Default connection info.
+defaultConnectInfo :: ConnectInfo
+defaultConnectInfo = decodeConnectInfo (MySQL.defaultConnectInfoMB4, Nothing)
+
+-- | Acquire a connection using API info.
+connect :: ConnectInfo -> IO MySQL.MySQLConn
+connect ci = connect' $ encodeConnectInfo ci
+
+type MySQLConnectInfoAndTLS = (MySQL.ConnectInfo, Maybe TLS.ClientParams)
+
+-- | Acquire a connection using MySQL-Haskell info.
+connect' :: MySQLConnectInfoAndTLS -> IO MySQL.MySQLConn
+connect' (ci, Nothing)    = MySQL.connect ci
+connect' (ci, (Just tls)) = MySQLTLS.connect ci (tls, "persistent-mysql")
+
+-- | Encode API info to MySQL-Haskell info
+encodeConnectInfo :: ConnectInfo -> MySQLConnectInfoAndTLS
+encodeConnectInfo (ConnectInfo host port user password database tls) = (ci, tls)
+  where
+    ci = MySQL.ConnectInfo host (fromIntegral port) (BSC.pack database) (BSC.pack user) (BSC.pack password) 224
+
+-- | Decode MySQL-Haskell info to API info
+decodeConnectInfo :: MySQLConnectInfoAndTLS -> ConnectInfo
+decodeConnectInfo (MySQL.ConnectInfo host port db user pass _, tls) = ci
+  where
+    ci = ConnectInfo host (fromIntegral port) (BSC.unpack user) (BSC.unpack pass) (BSC.unpack db) tls
