@@ -6,5 +6,6 @@ packages:
   - ./persistent-test
   - ./persistent-mongoDB
   - ./persistent-mysql
+  - ./persistent-mysql-haskell
   - ./persistent-postgresql
   - ./persistent-redis

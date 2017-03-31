@@ -2,21 +2,23 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE StandaloneDeriving #-}
+
 -- | A MySQL backend for @persistent@.
 module Database.Persist.MySQL
-    ( withMySQLPool
-    , withMySQLConn
-    , createMySQLPool
-    , module Database.Persist.Sql
-    , MySQL.ConnectInfo(..)
-    , MySQLBase.SSLInfo(..)
-    , MySQL.defaultConnectInfo
-    , MySQLBase.defaultSSLInfo
-    , MySQLConf(..)
-    , mockMigration
-    ) where
+  ( withMySQLPool
+  , withMySQLConn
+  , createMySQLPool
+  , module Database.Persist.Sql
+  , MySQLConnectInfo
+  , mkMySQLConnectInfo
+  , MySQLConf
+  , mkMySQLConf
+  , mockMigration
+) where
 
 import Control.Arrow
+import Control.Monad (void)
 import Control.Monad.Logger (MonadLogger, runNoLoggingT)
 import Control.Monad.IO.Class (MonadIO (..))
 import Control.Monad.Trans.Class (lift)
@@ -26,7 +28,6 @@ import Control.Monad.Trans.Writer (runWriterT)
 import Data.Monoid ((<>))
 import Data.Aeson
 import Data.Aeson.Types (modifyFailure)
-import Data.ByteString (ByteString)
 import Data.Either (partitionEithers)
 import Data.Fixed (Pico)
 import Data.Function (on)
@@ -40,8 +41,7 @@ import System.Environment (getEnvironment)
 import Data.Acquire (Acquire, mkAcquire, with)
 
 import Data.Conduit
-import qualified Blaze.ByteString.Builder.Char8 as BBB
-import qualified Blaze.ByteString.Builder.ByteString as BBS
+import qualified Data.ByteString.Lazy as BS
 import qualified Data.Conduit.List as CL
 import qualified Data.Map as Map
 import qualified Data.Text as T
@@ -51,13 +51,12 @@ import Database.Persist.Sql
 import Database.Persist.Sql.Types.Internal (mkPersistBackend)
 import Data.Int (Int64)
 
-import qualified Database.MySQL.Simple        as MySQL
-import qualified Database.MySQL.Simple.Param  as MySQL
-import qualified Database.MySQL.Simple.Result as MySQL
-import qualified Database.MySQL.Simple.Types  as MySQL
+import qualified Database.MySQL.Base    as MySQL
+import qualified System.IO.Streams      as Streams
+import qualified Data.Time.Calendar     as Time
+import qualified Data.Time.LocalTime    as Time
+import qualified Data.ByteString.Char8  as BSC
 
-import qualified Database.MySQL.Base          as MySQLBase
-import qualified Database.MySQL.Base.Types    as MySQLBase
 import Control.Monad.Trans.Control (MonadBaseControl)
 import Control.Monad.Trans.Resource (runResourceT)
 
@@ -66,7 +65,7 @@ import Control.Monad.Trans.Resource (runResourceT)
 -- it.  Note that you should not use the given 'ConnectionPool'
 -- outside the action since it may be already been released.
 withMySQLPool :: (MonadIO m, MonadLogger m, MonadBaseControl IO m, IsSqlBackend backend)
-              => MySQL.ConnectInfo
+              => MySQLConnectInfo
               -- ^ Connection information.
               -> Int
               -- ^ Number of connections to be kept open in the pool.
@@ -80,7 +79,7 @@ withMySQLPool ci = withSqlPool $ open' ci
 -- responsibility to properly close the connection pool when
 -- unneeded.  Use 'withMySQLPool' for automatic resource control.
 createMySQLPool :: (MonadBaseControl IO m, MonadIO m, MonadLogger m, IsSqlBackend backend)
-                => MySQL.ConnectInfo
+                => MySQLConnectInfo
                 -- ^ Connection information.
                 -> Int
                 -- ^ Number of connections to be kept open in the pool.
@@ -91,7 +90,7 @@ createMySQLPool ci = createSqlPool $ open' ci
 -- | Same as 'withMySQLPool', but instead of opening a pool
 -- of connections, only one connection is opened.
 withMySQLConn :: (MonadBaseControl IO m, MonadIO m, MonadLogger m, IsSqlBackend backend)
-              => MySQL.ConnectInfo
+              => MySQLConnectInfo
               -- ^ Connection information.
               -> (backend -> m a)
               -- ^ Action to be executed that uses the connection.
@@ -101,10 +100,10 @@ withMySQLConn = withSqlConn . open'
 
 -- | Internal function that opens a connection to the MySQL
 -- server.
-open' :: (IsSqlBackend backend) => MySQL.ConnectInfo -> LogFunc -> IO backend
-open' ci logFunc = do
+open' :: (IsSqlBackend backend) => MySQLConnectInfo -> LogFunc -> IO backend
+open' (MySQLConnectInfo ci) logFunc = do
     conn <- MySQL.connect ci
-    MySQLBase.autocommit conn False -- disable autocommit!
+    autocommit' conn False -- disable autocommit!
     smap <- newIORef $ Map.empty
     return . mkPersistBackend $ SqlBackend
         { connPrepare    = prepare' conn
@@ -114,9 +113,9 @@ open' ci logFunc = do
         , connUpsertSql = Nothing
         , connClose      = MySQL.close conn
         , connMigrateSql = migrate' ci
-        , connBegin      = const $ MySQL.execute_ conn "start transaction" >> return ()
-        , connCommit     = const $ MySQL.commit   conn
-        , connRollback   = const $ MySQL.rollback conn
+        , connBegin      = const $ begin' conn
+        , connCommit     = const $ commit' conn
+        , connRollback   = const $ rollback' conn
         , connEscapeName = pack . escapeDBName
         , connNoLimit    = "LIMIT 18446744073709551615"
         -- This noLimit is suggested by MySQL's own docs, see
@@ -127,11 +126,27 @@ open' ci logFunc = do
         , connMaxParams = Nothing
         }
 
+-- | Set autocommit setting
+autocommit' :: MySQL.MySQLConn -> Bool -> IO ()
+autocommit' conn bool = void $ MySQL.execute conn "SET autocommit=?" [encodeBool bool]
+
+-- | Start a transaction.
+begin' :: MySQL.MySQLConn -> IO ()
+begin' conn = void $ MySQL.execute_ conn "BEGIN"
+
+-- | Commit the current transaction.
+commit' :: MySQL.MySQLConn -> IO ()
+commit' conn = void $ MySQL.execute_ conn "COMMIT"
+
+-- | Rollback the current transaction.
+rollback' :: MySQL.MySQLConn -> IO ()
+rollback' conn = void $ MySQL.execute_ conn "ROLLBACK"
+
 -- | Prepare a query.  We don't support prepared statements, but
 -- we'll do some client-side preprocessing here.
-prepare' :: MySQL.Connection -> Text -> IO Statement
+prepare' :: MySQL.MySQLConn -> Text -> IO Statement
 prepare' conn sql = do
-    let query = MySQL.Query (T.encodeUtf8 sql)
+    let query = MySQL.Query . BS.fromStrict . T.encodeUtf8 $ sql
     return Statement
         { stmtFinalize = return ()
         , stmtReset    = return ()
@@ -157,31 +172,36 @@ insertSql' ent vals =
        Nothing -> ISRInsertGet sql "SELECT LAST_INSERT_ID()"
 
 -- | Execute an statement that doesn't return any results.
-execute' :: MySQL.Connection -> MySQL.Query -> [PersistValue] -> IO Int64
-execute' conn query vals = MySQL.execute conn query (map P vals)
+execute' :: MySQL.MySQLConn -> MySQL.Query -> [PersistValue] -> IO Int64
+execute' conn query vals
+  = fmap (fromIntegral . MySQL.okAffectedRows) $ MySQL.execute conn query (map P vals)
 
+-- | query' allows arguments to be empty.
+query'
+  :: MySQL.QueryParam p => MySQL.MySQLConn -> MySQL.Query -> [p]
+  -> IO ([MySQL.ColumnDef], Streams.InputStream [MySQL.MySQLValue])
+query' conn qry [] = MySQL.query_ conn qry
+query' conn qry ps = MySQL.query  conn qry ps
 
 -- | Execute an statement that does return results.  The results
 -- are fetched all at once and stored into memory.
 withStmt' :: MonadIO m
-          => MySQL.Connection
+          => MySQL.MySQLConn
           -> MySQL.Query
           -> [PersistValue]
           -> Acquire (Source m [PersistValue])
 withStmt' conn query vals = do
-    result <- mkAcquire createResult MySQLBase.freeResult
+    result <- mkAcquire createResult releaseResult
     return $ fetchRows result >>= CL.sourceList
   where
-    createResult = do
-      -- Execute the query
-      formatted <- MySQL.formatQuery conn query (map P vals)
-      MySQLBase.query conn formatted
-      MySQLBase.storeResult conn
+    createResult = return $ query' conn query (map P vals)
+    releaseResult _ = return ()
 
     fetchRows result = liftIO $ do
       -- Find out the type of the columns
-      fields <- MySQLBase.fetchFields result
-      let getters = [ maybe PersistNull (getGetter f f . Just) | f <- fields]
+      (fields, is) <- result
+      -- let getters = [ maybe PersistNull (getGetter f f . Just) | f <- fields]
+      let getters = fmap getGetter fields
           convert = use getters
             where use (g:gs) (col:cols) =
                     let v  = g col
@@ -191,113 +211,98 @@ withStmt' conn query vals = do
 
       -- Ready to go!
       let go acc = do
-            row <- MySQLBase.fetchRow result
+            row <- Streams.read is
             case row of
-              [] -> return (acc [])
-              _  -> let converted = convert row
+              Nothing  -> return (acc [])
+              (Just r) -> let converted = convert r
                     in converted `seq` go (acc . (converted:))
       go id
 
+-- | Encode a Haskell bool into a MySQLValue
+encodeBool :: Bool -> MySQL.MySQLValue
+encodeBool True = MySQL.MySQLInt8U 1
+encodeBool False = MySQL.MySQLInt8U 0
+
+-- | Decode a Numeric value into a PersistBool
+decodeBool :: (Eq a, Num a) => a -> PersistValue
+decodeBool 0 = PersistBool False
+decodeBool _ = PersistBool True
+
+-- | Decode a whole number into a PersistInt64
+decodeInteger :: Integral a => a -> PersistValue
+decodeInteger = PersistInt64 . fromIntegral
+
+-- | Decode a decimal number into a PersistDouble
+decodeDouble :: Real a => a -> PersistValue
+decodeDouble = PersistDouble . realToFrac
 
 -- | @newtype@ around 'PersistValue' that supports the
 -- 'MySQL.Param' type class.
 newtype P = P PersistValue
 
-instance MySQL.Param P where
-    render (P (PersistText t))        = MySQL.render t
-    render (P (PersistByteString bs)) = MySQL.render bs
-    render (P (PersistInt64 i))       = MySQL.render i
-    render (P (PersistDouble d))      = MySQL.render d
-    render (P (PersistBool b))        = MySQL.render b
-    render (P (PersistDay d))         = MySQL.render d
-    render (P (PersistTimeOfDay t))   = MySQL.render t
-    render (P (PersistUTCTime t))     = MySQL.render t
-    render (P PersistNull)            = MySQL.render MySQL.Null
-    render (P (PersistList l))        = MySQL.render $ listToJSON l
-    render (P (PersistMap m))         = MySQL.render $ mapToJSON m
-    render (P (PersistRational r))    =
-      MySQL.Plain $ BBB.fromString $ show (fromRational r :: Pico)
-      -- FIXME: Too Ambigous, can not select precision without information about field
-    render (P (PersistDbSpecific s))    = MySQL.Plain $ BBS.fromByteString s
-    render (P (PersistObjectId _))    =
-        error "Refusing to serialize a PersistObjectId to a MySQL value"
+instance MySQL.QueryParam P where
+  render (P (PersistText t))        = MySQL.putTextField $ MySQL.MySQLText t
+  render (P (PersistByteString b))  = MySQL.putTextField $ MySQL.MySQLBytes b
+  render (P (PersistInt64 i))       = MySQL.putTextField $ MySQL.MySQLInt64 i
+  render (P (PersistDouble d))      = MySQL.putTextField $ MySQL.MySQLDouble d
+  render (P (PersistBool b))        = MySQL.putTextField $ encodeBool b
+  render (P (PersistDay d))         = MySQL.putTextField $ MySQL.MySQLDate d
+  render (P (PersistTimeOfDay t))   = MySQL.putTextField $ MySQL.MySQLTime 0 t
+  render (P (PersistUTCTime t))     = MySQL.putTextField . MySQL.MySQLTimeStamp $ Time.utcToLocalTime Time.utc t
+  render (P (PersistNull))          = MySQL.putTextField $ MySQL.MySQLNull
+  render (P (PersistList l))        = MySQL.putTextField . MySQL.MySQLText $ listToJSON l
+  render (P (PersistMap m))         = MySQL.putTextField . MySQL.MySQLText $ mapToJSON m
+  render (P (PersistRational r))    =
+    MySQL.putTextField $ MySQL.MySQLDecimal $ read $ show (fromRational r :: Pico)
+    -- FIXME: Too Ambigous, can not select precision without information about field
+  render (P (PersistDbSpecific b))  = MySQL.putTextField $ MySQL.MySQLBytes b
+  render (P (PersistObjectId _))    =
+    error "Refusing to map a PersistObjectId to a MySQL value"
 
-
--- | @Getter a@ is a function that converts an incoming value
+-- | @Getter a@ is a function that converts an incoming "MySQLValue"
 -- into a data type @a@.
-type Getter a = MySQLBase.Field -> Maybe ByteString -> a
-
--- | Helper to construct 'Getter'@s@ using 'MySQL.Result'.
-convertPV :: MySQL.Result a => (a -> b) -> Getter b
-convertPV f = (f .) . MySQL.convert
+type Getter a = MySQL.MySQLValue -> a
 
 -- | Get the corresponding @'Getter' 'PersistValue'@ depending on
 -- the type of the column.
-getGetter :: MySQLBase.Field -> Getter PersistValue
-getGetter field = go (MySQLBase.fieldType field) 
-                        (MySQLBase.fieldLength field)
-                            (MySQLBase.fieldCharSet field)
+getGetter :: MySQL.ColumnDef -> Getter PersistValue
+getGetter field = case (MySQL.columnLength field) of
+  1 -> goBool
+  _ -> go
   where
     -- Bool
-    go MySQLBase.Tiny       1 _ = convertPV PersistBool
-    go MySQLBase.Tiny       _ _ = convertPV PersistInt64
+    goBool (MySQL.MySQLInt8U v) = decodeBool v
+    goBool (MySQL.MySQLInt8  v) = decodeBool v
+    goBool _                    = PersistBool False
     -- Int64
-    go MySQLBase.Int24      _ _ = convertPV PersistInt64
-    go MySQLBase.Short      _ _ = convertPV PersistInt64
-    go MySQLBase.Long       _ _ = convertPV PersistInt64
-    go MySQLBase.LongLong   _ _ = convertPV PersistInt64
+    go (MySQL.MySQLInt8U  v) = decodeInteger v
+    go (MySQL.MySQLInt8   v) = decodeInteger v
+    go (MySQL.MySQLInt16U v) = decodeInteger v
+    go (MySQL.MySQLInt16  v) = decodeInteger v
+    go (MySQL.MySQLInt32U v) = decodeInteger v
+    go (MySQL.MySQLInt32  v) = decodeInteger v
+    go (MySQL.MySQLInt64U v) = decodeInteger v
+    go (MySQL.MySQLInt64  v) = decodeInteger v
+    go (MySQL.MySQLBit    v) = decodeInteger v
     -- Double
-    go MySQLBase.Float      _ _ = convertPV PersistDouble
-    go MySQLBase.Double     _ _ = convertPV PersistDouble
-    go MySQLBase.Decimal    _ _ = convertPV PersistDouble
-    go MySQLBase.NewDecimal _ _ = convertPV PersistDouble
-
+    -- TODO: FIX WARNING(S) AND TRY TO PROVIDE LEAST PRECISION LOSS
+    go (MySQL.MySQLFloat    v) = decodeDouble v
+    go (MySQL.MySQLDouble   v) = decodeDouble v
+    go (MySQL.MySQLDecimal  v) = decodeDouble v
     -- ByteString and Text
-
-    -- The MySQL C client (and by extension the Haskell mysql package) doesn't distinguish between binary and non-binary string data at the type level.
-    -- (e.g. both BLOB and TEXT have the MySQLBase.Blob type).
-    -- Instead, the character set distinguishes them. Binary data uses character set number 63.
-    -- See https://dev.mysql.com/doc/refman/5.6/en/c-api-data-structures.html (Search for "63")
-    go MySQLBase.VarChar    _ 63 = convertPV PersistByteString
-    go MySQLBase.VarString  _ 63 = convertPV PersistByteString
-    go MySQLBase.String     _ 63 = convertPV PersistByteString
-
-    go MySQLBase.VarChar    _ _  = convertPV PersistText
-    go MySQLBase.VarString  _ _  = convertPV PersistText
-    go MySQLBase.String     _ _  = convertPV PersistText
-    
-    go MySQLBase.Blob       _ 63 = convertPV PersistByteString
-    go MySQLBase.TinyBlob   _ 63 = convertPV PersistByteString
-    go MySQLBase.MediumBlob _ 63 = convertPV PersistByteString
-    go MySQLBase.LongBlob   _ 63 = convertPV PersistByteString
-
-    go MySQLBase.Blob       _ _  = convertPV PersistText
-    go MySQLBase.TinyBlob   _ _  = convertPV PersistText
-    go MySQLBase.MediumBlob _ _  = convertPV PersistText
-    go MySQLBase.LongBlob   _ _  = convertPV PersistText
-
+    go (MySQL.MySQLBytes  v) = PersistByteString v
+    go (MySQL.MySQLText   v) = PersistText v
     -- Time-related
-    go MySQLBase.Time       _ _  = convertPV PersistTimeOfDay
-    go MySQLBase.DateTime   _ _  = convertPV PersistUTCTime
-    go MySQLBase.Timestamp  _ _  = convertPV PersistUTCTime
-    go MySQLBase.Date       _ _  = convertPV PersistDay
-    go MySQLBase.NewDate    _ _  = convertPV PersistDay
-    go MySQLBase.Year       _ _  = convertPV PersistDay
+    -- TODO: REMOVE ASSUMPTION THAT DATETIME and TIMESTAMP are in UTC
+    go (MySQL.MySQLDateTime   v) = PersistUTCTime $ Time.localTimeToUTC Time.utc v
+    go (MySQL.MySQLTimeStamp  v) = PersistUTCTime $ Time.localTimeToUTC Time.utc v
+    go (MySQL.MySQLYear       v) = PersistDay (Time.fromGregorian (fromIntegral v) 1 1)
+    go (MySQL.MySQLDate       v) = PersistDay v
+    go (MySQL.MySQLTime _     v) = PersistTimeOfDay v
     -- Null
-    go MySQLBase.Null       _ _  = \_ _ -> PersistNull
-    -- Controversial conversions
-    go MySQLBase.Set        _ _  = convertPV PersistText
-    go MySQLBase.Enum       _ _  = convertPV PersistText
+    go (MySQL.MySQLNull        ) = PersistNull
     -- Conversion using PersistDbSpecific
-    go MySQLBase.Geometry   _ _  = \_ m ->
-      case m of
-        Just g -> PersistDbSpecific g
-        Nothing -> error "Unexpected null in database specific value"
-    -- Unsupported
-    go other _ _ = error $ "MySQL.getGetter: type " ++
-                      show other ++ " not supported."
-
-
+    go (MySQL.MySQLGeometry   v) = PersistDbSpecific v
 
 ----------------------------------------------------------------------
 
@@ -324,10 +329,10 @@ migrate' connectInfo allDefs getter val = do
         let foreigns = do
               Column { cName=cname, cReference=Just (refTblName, _a) } <- newcols
               return $ AlterColumn name (refTblName, addReference allDefs (refName name cname) refTblName cname)
-                 
-        let foreignsAlt = map (\fdef -> let (childfields, parentfields) = unzip (map (\((_,b),(_,d)) -> (b,d)) (foreignFields fdef)) 
+
+        let foreignsAlt = map (\fdef -> let (childfields, parentfields) = unzip (map (\((_,b),(_,d)) -> (b,d)) (foreignFields fdef))
                                         in AlterColumn name (foreignRefTableDBName fdef, AddReference (foreignRefTableDBName fdef) (foreignConstraintNameDBName fdef) childfields parentfields)) fdefs
-        
+
         return $ Right $ map showAlterDb $ (addTable newcols val): uniques ++ foreigns ++ foreignsAlt
       -- No errors and something found, migrate
       (_, _, ([], old')) -> do
@@ -497,7 +502,7 @@ getColumns connectInfo getter def = do
     -- Return both
     return (ids, cs ++ us)
   where
-    vals = [ PersistText $ pack $ MySQL.connectDatabase connectInfo
+    vals = [ PersistText $ T.decodeUtf8 $ MySQL.ciDatabase connectInfo
            , PersistText $ unDBName $ entityDB def
            , PersistText $ unDBName $ fieldDB $ entityId def ]
 
@@ -555,10 +560,10 @@ getColumn connectInfo getter tname [ PersistText cname
                               \AND REFERENCED_TABLE_SCHEMA = ? \
                             \ORDER BY CONSTRAINT_NAME, \
                                      \COLUMN_NAME"
-      let vars = [ PersistText $ pack $ MySQL.connectDatabase connectInfo
+      let vars = [ PersistText $ T.decodeUtf8 $ MySQL.ciDatabase connectInfo
                  , PersistText $ unDBName $ tname
                  , PersistText cname
-                 , PersistText $ pack $ MySQL.connectDatabase connectInfo ]
+                 , PersistText $ T.decodeUtf8 $ MySQL.ciDatabase connectInfo ]
       cntrs <- with (stmtQuery stmt vars) ($$ CL.consume)
       ref <- case cntrs of
                [] -> return Nothing
@@ -877,25 +882,50 @@ data MySQLConf = MySQLConf
       -- ^ How many connections should be held on the connection pool.
     } deriving Show
 
+-- | Public constructor for @MySQLConf@.
+mkMySQLConf
+  :: MySQLConnectInfo  -- ^ The connection information.
+  -> Int               -- ^ How many connections should be held on the connection pool.
+  -> MySQLConf
+mkMySQLConf (MySQLConnectInfo ci) = MySQLConf ci
+
+-- | Wrapper to limit public access.
+newtype MySQLConnectInfo = MySQLConnectInfo MySQL.ConnectInfo
+  deriving Show
+
+-- | Public constructor for @MySQLConnectInfo@.
+mkMySQLConnectInfo
+  :: String -- ^ hostname
+  -> String -- ^ username
+  -> String -- ^ password
+  -> String -- ^ database
+  -> MySQLConnectInfo
+mkMySQLConnectInfo host user pass db
+  = MySQLConnectInfo   $ MySQL.defaultConnectInfo {
+      MySQL.ciHost     = host
+    , MySQL.ciUser     = BSC.pack user
+    , MySQL.ciPassword = BSC.pack pass
+    , MySQL.ciDatabase = BSC.pack db
+  }
+
+-- TODO: submit a PR to mysql-haskell to add SHOW instance
+deriving instance Show MySQL.ConnectInfo
+
 instance FromJSON MySQLConf where
     parseJSON v = modifyFailure ("Persistent: error loading MySQL conf: " ++) $
       flip (withObject "MySQLConf") v $ \o -> do
         database <- o .: "database"
         host     <- o .: "host"
         port     <- o .: "port"
-        path     <- o .:? "path"
         user     <- o .: "user"
         password <- o .: "password"
         pool     <- o .: "poolsize"
         let ci = MySQL.defaultConnectInfo
-                   { MySQL.connectHost     = host
-                   , MySQL.connectPort     = port
-                   , MySQL.connectPath     = case path of
-                         Just p  -> p
-                         Nothing -> MySQL.connectPath MySQL.defaultConnectInfo
-                   , MySQL.connectUser     = user
-                   , MySQL.connectPassword = password
-                   , MySQL.connectDatabase = database
+                   { MySQL.ciHost     = host
+                   , MySQL.ciPort     = read port
+                   , MySQL.ciUser     = BSC.pack user
+                   , MySQL.ciPassword = BSC.pack password
+                   , MySQL.ciDatabase = BSC.pack database
                    }
         return $ MySQLConf ci pool
 
@@ -904,7 +934,7 @@ instance PersistConfig MySQLConf where
 
     type PersistConfigPool    MySQLConf = ConnectionPool
 
-    createPoolConfig (MySQLConf cs size) = runNoLoggingT $ createMySQLPool cs size -- FIXME
+    createPoolConfig (MySQLConf cs size) = runNoLoggingT $ createMySQLPool (MySQLConnectInfo cs) size -- FIXME
 
     runPool _ = runSqlPool
 
@@ -912,24 +942,22 @@ instance PersistConfig MySQLConf where
 
     applyEnv conf = do
         env <- getEnvironment
-        let maybeEnv old var = maybe old id $ lookup ("MYSQL_" ++ var) env
+        let maybeEnv old var = maybe old id $ fmap BSC.pack $ lookup ("MYSQL_" ++ var) env
         return conf
           { myConnInfo =
               case myConnInfo conf of
                 MySQL.ConnectInfo
-                  { MySQL.connectHost     = host
-                  , MySQL.connectPort     = port
-                  , MySQL.connectPath     = path
-                  , MySQL.connectUser     = user
-                  , MySQL.connectPassword = password
-                  , MySQL.connectDatabase = database
+                  { MySQL.ciHost     = host
+                  , MySQL.ciPort     = port
+                  , MySQL.ciUser     = user
+                  , MySQL.ciPassword = password
+                  , MySQL.ciDatabase = database
                   } -> (myConnInfo conf)
-                         { MySQL.connectHost     = maybeEnv host "HOST"
-                         , MySQL.connectPort     = read $ maybeEnv (show port) "PORT"
-                         , MySQL.connectPath     = maybeEnv path "PATH"
-                         , MySQL.connectUser     = maybeEnv user "USER"
-                         , MySQL.connectPassword = maybeEnv password "PASSWORD"
-                         , MySQL.connectDatabase = maybeEnv database "DATABASE"
+                         { MySQL.ciHost     = BSC.unpack $ maybeEnv (BSC.pack host) "HOST"
+                         , MySQL.ciPort     = read (BSC.unpack $ maybeEnv (BSC.pack $ show port) "PORT")
+                         , MySQL.ciUser     = maybeEnv user "USER"
+                         , MySQL.ciPassword = maybeEnv password "PASSWORD"
+                         , MySQL.ciDatabase = maybeEnv database "DATABASE"
                          }
           }
 
@@ -980,7 +1008,7 @@ mockMigrate _connectInfo allDefs _getter val = do
 
 
 -- | Mock a migration even when the database is not present.
--- This function will mock the migration for a database even when 
+-- This function will mock the migration for a database even when
 -- the actual database isn't already present in the system.
 mockMigration :: Migration -> IO ()
 mockMigration mig = do

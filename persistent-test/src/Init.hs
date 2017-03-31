@@ -247,6 +247,11 @@ runConn f = do
         withPostgresqlPool ("host=" <> host <> " port=5432 user=postgres dbname=test") 1 $ runSqlPool f
 #  else
 #    ifdef WITH_MYSQL
+#      ifdef WITH_MYSQL_HASKELL
+    _ <- if not travis
+      then withMySQLPool (mkMySQLConnectInfo "localhost" "test" "test" "test") 1 $ runSqlPool f
+      else withMySQLPool (mkMySQLConnectInfo "localhost" "travis" "" "persistent") 1 $ runSqlPool f
+#      else
     _ <- if not travis
       then withMySQLPool defaultConnectInfo
                         { connectHost     = "localhost"
@@ -260,6 +265,7 @@ runConn f = do
                         , connectPassword = ""
                         , connectDatabase = "persistent"
                         } 1 $ runSqlPool f
+#      endif
 #    else
     _<-withSqlitePoolInfo sqlite_database 1 $ runSqlPool f
 #    endif
