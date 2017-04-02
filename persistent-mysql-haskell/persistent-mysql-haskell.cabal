@@ -48,4 +48,6 @@ library
 
 source-repository head
   type:     git
-  location: git://github.com/yesodweb/persistent.git
+  location: git://github.com/naushadh/persistent.git
+  branch:   persistent-mysql-haskell
+  subdir:   persistent-mysql-haskell
