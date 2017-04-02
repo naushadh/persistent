@@ -889,7 +889,7 @@ mkMySQLConf
   -> MySQLConf
 mkMySQLConf (MySQLConnectInfo ci) = MySQLConf ci
 
--- | Wrapper to limit public access.
+-- | MySQL connection information.
 newtype MySQLConnectInfo = MySQLConnectInfo MySQL.ConnectInfo
   deriving Show
 
