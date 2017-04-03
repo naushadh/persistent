@@ -63,15 +63,13 @@ Aside from connection configuration, persistent-mysql-haskell is functionally on
 - TLDR: Upstream wants to gauge community interest before absorbing this backend into the main repo.
 - Long version: See [issue yesodweb/persistent/issues/659](https://github.com/yesodweb/persistent/issues/659).
 
-#### mysql-haskell supports X but persistent-mysql-haskell API doesn't expose it. Why?
+#### persistent-mysql supports X but persistent-mysql-haskell API doesn't. Why?
 
 - Internals (getters/setters) of MySQLConnectInfo and `defaultConnectInfo` are intentionally masked for [forward compatibility](http://www.snoyman.com/blog/2016/11/designing-apis-for-extensibility).
 
-- Setting `MySQLConnectInfo` charset and port number  are in the works.
+- `TLS` support is in the works.
 
-- `TLS` support is also in the works.
-
-- For all others, including what's already in the works, feel free to open an issue and/or submit a PR.
+- For all others, feel free to open an issue and/or submit a PR.
 
 #### Does persistent-mysql-haskell ship with tests?
 

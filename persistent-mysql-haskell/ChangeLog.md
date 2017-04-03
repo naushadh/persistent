@@ -1,3 +1,6 @@
+## 0.2.1.0
+- Bumped up version to update README.
+
 ## 0.2.0.0
 - Added APIs for setting port number and character encoding.
 - Updated type signature for mkMySQLConnectInfo to align with mysql-haskell.
