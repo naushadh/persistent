@@ -1,3 +1,10 @@
+## 0.2.0.0
+- Added APIs for setting port number and character encoding.
+- Updated type signature for mkMySQLConnectInfo to align with mysql-haskell.
+
+## 0.1.1.0
+- Bumped up version to include README and example.
+
 ## 0.1.0.0
 
 * Ported persistent-mysql 2.6 to use mysql-haskell as the underlying database driver.

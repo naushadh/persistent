@@ -43,7 +43,18 @@ Personal experience on replacing `mysql-simple` with `mysql-haskell` in a projec
     -             , connectDatabase = "test"
     -             }
     + connectInfo = mkMySQLConnectInfo "localhost" "test" "test" "test"
+
+    connectInfoNewPort :: MySQLConnectInfo
+    - connectInfoNewPort = connectInfo { connectPort = 3307 }
+    + connectInfoNewPort = setMySQLConnectInfoPort 3307 connectInfo
+
+    connectInfoNewCharSet :: MySQLConnectInfo
+    - connectInfoNewCharSet = connectInfo { connectOptions = [CharsetName "utf8"] }
+    + connectInfoNewCharSet = setMySQLConnectInfoCharset 33 connectInfo
+
     ```
+
+Aside from connection configuration, persistent-mysql-haskell is functionally on par with persistent-mysql (as of writing this). This can be seen by [comparing persistent-test between this fork and upstream](https://github.com/yesodweb/persistent/compare/master...naushadh:persistent-mysql-haskell#diff-028f5df7b2b9c5c8b0fa670fc8c69bff).
 
 ### FAQs
 

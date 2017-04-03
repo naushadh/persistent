@@ -12,6 +12,8 @@ module Database.Persist.MySQL
   , module Database.Persist.Sql
   , MySQLConnectInfo
   , mkMySQLConnectInfo
+  , setMySQLConnectInfoPort
+  , setMySQLConnectInfoCharset
   , MySQLConf
   , mkMySQLConf
   , mockMigration
@@ -56,6 +58,8 @@ import qualified System.IO.Streams      as Streams
 import qualified Data.Time.Calendar     as Time
 import qualified Data.Time.LocalTime    as Time
 import qualified Data.ByteString.Char8  as BSC
+import qualified Network.Socket         as NetworkSocket
+import qualified Data.Word              as Word
 
 import Control.Monad.Trans.Control (MonadBaseControl)
 import Control.Monad.Trans.Resource (runResourceT)
@@ -895,18 +899,29 @@ newtype MySQLConnectInfo = MySQLConnectInfo MySQL.ConnectInfo
 
 -- | Public constructor for @MySQLConnectInfo@.
 mkMySQLConnectInfo
-  :: String -- ^ hostname
-  -> String -- ^ username
-  -> String -- ^ password
-  -> String -- ^ database
+  :: NetworkSocket.HostName -- ^ hostname
+  -> BSC.ByteString          -- ^ username
+  -> BSC.ByteString          -- ^ password
+  -> BSC.ByteString          -- ^ database
   -> MySQLConnectInfo
 mkMySQLConnectInfo host user pass db
   = MySQLConnectInfo   $ MySQL.defaultConnectInfo {
       MySQL.ciHost     = host
-    , MySQL.ciUser     = BSC.pack user
-    , MySQL.ciPassword = BSC.pack pass
-    , MySQL.ciDatabase = BSC.pack db
+    , MySQL.ciUser     = user
+    , MySQL.ciPassword = pass
+    , MySQL.ciDatabase = db
   }
+
+-- | Update port number for @MySQLConnectInfo@.
+setMySQLConnectInfoPort :: NetworkSocket.PortNumber -> MySQLConnectInfo -> MySQLConnectInfo
+setMySQLConnectInfoPort port (MySQLConnectInfo ci) = MySQLConnectInfo $ ci { MySQL.ciPort = port }
+
+-- | Update character set for @MySQLConnectInfo@.
+setMySQLConnectInfoCharset
+  :: Word.Word8       -- ^ Numeric ID of collation. See https://dev.mysql.com/doc/refman/5.7/en/show-collation.html.
+  -> MySQLConnectInfo -- ^ Reference connectInfo to perform update on
+  -> MySQLConnectInfo
+setMySQLConnectInfoCharset charset (MySQLConnectInfo ci) = MySQLConnectInfo $ ci { MySQL.ciCharset = charset }
 
 -- TODO: submit a PR to mysql-haskell to add SHOW instance
 deriving instance Show MySQL.ConnectInfo
