@@ -56,6 +56,21 @@ Personal experience on replacing `mysql-simple` with `mysql-haskell` in a projec
 
     ```
 
+- `mysql-haskell` and `mysql` have different APIs/mechanisms for securing the
+connection to MySQL. `persistent-mysql-haskell` exposes an API to utilize
+[TLS client params](https://hackage.haskell.org/package/mysql-haskell/docs/Database-MySQL-TLS.html)
+that ships with `mysql-haskell`.
+
+    ```diff
+    connectInfoCustomCaStore :: MySQLConnectInfo
+    - connectInfoCustomCaStore = connectInfo { connectSSL = Just customCaParams }
+    + connectInfoCustomCaStore = setMySQLConnectInfoTLS customCaParams connectInfo
+        where
+    -         customCaParams = defaultSSLInfo { sslCAPath = "foobar.pem" }
+    +         customCaParams = makeClientParams $ CustomCAStore "foobar.pem"
+    ```
+
+
 Aside from connection configuration, persistent-mysql-haskell is functionally on par with persistent-mysql (as of writing this). This can be seen by [comparing persistent-test between this fork and upstream](https://github.com/yesodweb/persistent/compare/master...naushadh:persistent-mysql-haskell#diff-028f5df7b2b9c5c8b0fa670fc8c69bff).
 
 ### FAQs
