@@ -1,5 +1,7 @@
 # persistent-mysql-haskell
 
+![hackage version](https://img.shields.io/hackage/v/persistent-mysql-haskell.svg)
+
 A pure haskell backend for [persistent](https://github.com/yesodweb/persistent) using the MySQL database server.
 Internally it uses the [mysql-haskell](https://github.com/winterland1989/mysql-haskell) driver in order to access the database.
 
@@ -66,8 +68,6 @@ Aside from connection configuration, persistent-mysql-haskell is functionally on
 #### persistent-mysql supports X but persistent-mysql-haskell API doesn't. Why?
 
 - Internals (getters/setters) of MySQLConnectInfo and `defaultConnectInfo` are intentionally masked for [forward compatibility](http://www.snoyman.com/blog/2016/11/designing-apis-for-extensibility).
-
-- `TLS` support is in the works.
 
 - For all others, feel free to open an issue and/or submit a PR.
 

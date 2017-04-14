@@ -1,3 +1,7 @@
+## 0.3.0.0
+- Added API for setting [TLS client parameters](https://hackage.haskell.org/package/mysql-haskell-0.8.0.0/docs/Database-MySQL-TLS.html) for secure MySQL connections.
+- Exported [Data.TLSSetting](https://hackage.haskell.org/package/tcp-streams-1.0.0.0/docs/Data-TLSSetting.html) for convenient usage of TLS.
+
 ## 0.2.1.0
 - Bumped up version to update README.
 

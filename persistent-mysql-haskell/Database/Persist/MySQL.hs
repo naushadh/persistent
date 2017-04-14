@@ -17,6 +17,11 @@ module Database.Persist.MySQL
   , MySQLConf
   , mkMySQLConf
   , mockMigration
+  -- * TLS configuration
+  , setMySQLConnectInfoTLS
+  , MySQLTLS.TrustedCAStore(..)
+  , MySQLTLS.makeClientParams
+  , MySQLTLS.makeClientParams'
 ) where
 
 import Control.Arrow
@@ -54,6 +59,8 @@ import Database.Persist.Sql.Types.Internal (mkPersistBackend)
 import Data.Int (Int64)
 
 import qualified Database.MySQL.Base    as MySQL
+import qualified Database.MySQL.TLS     as MySQLTLS
+import qualified Network.TLS            as TLS
 import qualified System.IO.Streams      as Streams
 import qualified Data.Time.Calendar     as Time
 import qualified Data.Time.LocalTime    as Time
@@ -101,12 +108,18 @@ withMySQLConn :: (MonadBaseControl IO m, MonadIO m, MonadLogger m, IsSqlBackend 
               -> m a
 withMySQLConn = withSqlConn . open'
 
+-- | Internal function that opens a @mysql-haskell@ connection to the server.
+connect' :: MySQLConnectInfo -> IO MySQL.MySQLConn
+connect' (MySQLConnectInfo innerCi Nothing)
+  = MySQL.connect innerCi
+connect' (MySQLConnectInfo innerCi (Just tls))
+  = MySQLTLS.connect innerCi (tls, "persistent-mysql-haskell")
 
--- | Internal function that opens a connection to the MySQL
+-- | Internal function that opens a @persistent@ connection to the MySQL
 -- server.
 open' :: (IsSqlBackend backend) => MySQLConnectInfo -> LogFunc -> IO backend
-open' (MySQLConnectInfo ci) logFunc = do
-    conn <- MySQL.connect ci
+open' ci@(MySQLConnectInfo innerCi _) logFunc = do
+    conn <- connect' ci
     autocommit' conn False -- disable autocommit!
     smap <- newIORef $ Map.empty
     return . mkPersistBackend $ SqlBackend
@@ -116,7 +129,7 @@ open' (MySQLConnectInfo ci) logFunc = do
         , connInsertManySql = Nothing
         , connUpsertSql = Nothing
         , connClose      = MySQL.close conn
-        , connMigrateSql = migrate' ci
+        , connMigrateSql = migrate' innerCi
         , connBegin      = const $ begin' conn
         , connCommit     = const $ commit' conn
         , connRollback   = const $ rollback' conn
@@ -880,7 +893,7 @@ escapeDBName (DBName s) = '`' : go (T.unpack s)
 -- using @persistent@'s generic facilities.  These values are the
 -- same that are given to 'withMySQLPool'.
 data MySQLConf = MySQLConf
-    { myConnInfo :: MySQL.ConnectInfo
+    { myConnInfo :: MySQLConnectInfo
       -- ^ The connection information.
     , myPoolSize :: Int
       -- ^ How many connections should be held on the connection pool.
@@ -891,37 +904,54 @@ mkMySQLConf
   :: MySQLConnectInfo  -- ^ The connection information.
   -> Int               -- ^ How many connections should be held on the connection pool.
   -> MySQLConf
-mkMySQLConf (MySQLConnectInfo ci) = MySQLConf ci
+mkMySQLConf = MySQLConf
 
 -- | MySQL connection information.
-newtype MySQLConnectInfo = MySQLConnectInfo MySQL.ConnectInfo
-  deriving Show
+data MySQLConnectInfo = MySQLConnectInfo
+  { innerConnInfo :: MySQL.ConnectInfo
+  , innerConnTLS  :: (Maybe TLS.ClientParams)
+  } deriving Show
 
 -- | Public constructor for @MySQLConnectInfo@.
 mkMySQLConnectInfo
-  :: NetworkSocket.HostName -- ^ hostname
+  :: NetworkSocket.HostName  -- ^ hostname
   -> BSC.ByteString          -- ^ username
   -> BSC.ByteString          -- ^ password
   -> BSC.ByteString          -- ^ database
   -> MySQLConnectInfo
 mkMySQLConnectInfo host user pass db
-  = MySQLConnectInfo   $ MySQL.defaultConnectInfo {
-      MySQL.ciHost     = host
-    , MySQL.ciUser     = user
-    , MySQL.ciPassword = pass
-    , MySQL.ciDatabase = db
-  }
+  = MySQLConnectInfo innerCi Nothing
+  where
+    innerCi = MySQL.defaultConnectInfo {
+        MySQL.ciHost     = host
+      , MySQL.ciUser     = user
+      , MySQL.ciPassword = pass
+      , MySQL.ciDatabase = db
+    }
 
 -- | Update port number for @MySQLConnectInfo@.
-setMySQLConnectInfoPort :: NetworkSocket.PortNumber -> MySQLConnectInfo -> MySQLConnectInfo
-setMySQLConnectInfoPort port (MySQLConnectInfo ci) = MySQLConnectInfo $ ci { MySQL.ciPort = port }
+setMySQLConnectInfoPort
+  :: NetworkSocket.PortNumber -> MySQLConnectInfo -> MySQLConnectInfo
+setMySQLConnectInfoPort port ci
+  = ci {innerConnInfo = innerCi { MySQL.ciPort = port } }
+  where innerCi = innerConnInfo ci
 
 -- | Update character set for @MySQLConnectInfo@.
 setMySQLConnectInfoCharset
   :: Word.Word8       -- ^ Numeric ID of collation. See https://dev.mysql.com/doc/refman/5.7/en/show-collation.html.
   -> MySQLConnectInfo -- ^ Reference connectInfo to perform update on
   -> MySQLConnectInfo
-setMySQLConnectInfoCharset charset (MySQLConnectInfo ci) = MySQLConnectInfo $ ci { MySQL.ciCharset = charset }
+setMySQLConnectInfoCharset charset ci
+  = ci {innerConnInfo = innerCi { MySQL.ciCharset = charset } }
+  where innerCi = innerConnInfo ci
+
+-- | Set TLS ClientParams for @MySQLConnectInfo@.
+setMySQLConnectInfoTLS
+  :: TLS.ClientParams -- ^ @ClientParams@ to establish a TLS connection with.
+  -> MySQLConnectInfo -- ^ Reference connectInfo to perform update on
+  -> MySQLConnectInfo
+setMySQLConnectInfoTLS tls ci
+  = ci {innerConnTLS = Just tls}
 
 -- TODO: submit a PR to mysql-haskell to add SHOW instance
 deriving instance Show MySQL.ConnectInfo
@@ -942,14 +972,15 @@ instance FromJSON MySQLConf where
                    , MySQL.ciPassword = BSC.pack password
                    , MySQL.ciDatabase = BSC.pack database
                    }
-        return $ MySQLConf ci pool
+        return $ MySQLConf (MySQLConnectInfo ci Nothing) pool
 
 instance PersistConfig MySQLConf where
     type PersistConfigBackend MySQLConf = SqlPersistT
 
     type PersistConfigPool    MySQLConf = ConnectionPool
 
-    createPoolConfig (MySQLConf cs size) = runNoLoggingT $ createMySQLPool (MySQLConnectInfo cs) size -- FIXME
+    createPoolConfig (MySQLConf cs size)
+      = runNoLoggingT $ createMySQLPool cs size -- FIXME
 
     runPool _ = runSqlPool
 
@@ -958,23 +989,22 @@ instance PersistConfig MySQLConf where
     applyEnv conf = do
         env <- getEnvironment
         let maybeEnv old var = maybe old id $ fmap BSC.pack $ lookup ("MYSQL_" ++ var) env
-        return conf
-          { myConnInfo =
-              case myConnInfo conf of
+        let innerCi = innerConnInfo . myConnInfo $ conf
+        let innerCiNew = case innerCi of
                 MySQL.ConnectInfo
                   { MySQL.ciHost     = host
                   , MySQL.ciPort     = port
                   , MySQL.ciUser     = user
                   , MySQL.ciPassword = password
                   , MySQL.ciDatabase = database
-                  } -> (myConnInfo conf)
-                         { MySQL.ciHost     = BSC.unpack $ maybeEnv (BSC.pack host) "HOST"
-                         , MySQL.ciPort     = read (BSC.unpack $ maybeEnv (BSC.pack $ show port) "PORT")
-                         , MySQL.ciUser     = maybeEnv user "USER"
-                         , MySQL.ciPassword = maybeEnv password "PASSWORD"
-                         , MySQL.ciDatabase = maybeEnv database "DATABASE"
-                         }
-          }
+                  } -> (innerCi)
+                        { MySQL.ciHost     = BSC.unpack $ maybeEnv (BSC.pack host) "HOST"
+                        , MySQL.ciPort     = read (BSC.unpack $ maybeEnv (BSC.pack $ show port) "PORT")
+                        , MySQL.ciUser     = maybeEnv user "USER"
+                        , MySQL.ciPassword = maybeEnv password "PASSWORD"
+                        , MySQL.ciDatabase = maybeEnv database "DATABASE"
+                        }
+        return conf { myConnInfo = MySQLConnectInfo innerCiNew Nothing }
 
 mockMigrate :: MySQL.ConnectInfo
          -> [EntityDef]
