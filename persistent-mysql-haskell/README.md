@@ -1,11 +1,12 @@
 # persistent-mysql-haskell
 
-![hackage version](https://img.shields.io/hackage/v/persistent-mysql-haskell.svg)
+[![hackage version](https://img.shields.io/hackage/v/persistent-mysql-haskell.svg)](https://hackage.haskell.org/package/persistent-mysql-haskell)
+[![Build Status](https://travis-ci.org/naushadh/persistent.svg?branch=persistent-mysql-haskell)](https://travis-ci.org/naushadh/persistent)
 
 A pure haskell backend for [persistent](https://github.com/yesodweb/persistent) using the MySQL database server.
 Internally it uses the [mysql-haskell](https://github.com/winterland1989/mysql-haskell) driver in order to access the database.
 
-See [example/Main.hs](example/Main.hs) for how this MySQL backend can be used with Persistent.
+See [example/Main.hs](https://github.com/naushadh/persistent/blob/persistent-mysql-haskell/persistent-mysql-haskell/example/Main.hs) for how this MySQL backend can be used with Persistent.
 
 ### Motivation
 

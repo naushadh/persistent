@@ -22,18 +22,21 @@ matrix:
   - env: ARGS="--resolver lts-2" BACKEND=mongodb
   - env: ARGS="--resolver lts-2" BACKEND=postgresql
   - env: ARGS="--resolver lts-2" BACKEND=mysql
+  - env: ARGS="--resolver lts-2" BACKEND=mysql_haskell
 
   - env: ARGS="--resolver lts-6" BACKEND=none
   - env: ARGS="--resolver lts-6" BACKEND=sqlite
   - env: ARGS="--resolver lts-6" BACKEND=mongodb
   - env: ARGS="--resolver lts-6" BACKEND=postgresql
   - env: ARGS="--resolver lts-6" BACKEND=mysql
+  - env: ARGS="--resolver lts-6" BACKEND=mysql_haskell
 
   - env: ARGS="" BACKEND=none
   - env: ARGS="" BACKEND=sqlite
   - env: ARGS="" BACKEND=mongodb
   - env: ARGS="" BACKEND=postgresql
   - env: ARGS="" BACKEND=mysql
+  - env: ARGS="" BACKEND=mysql_haskell
 
 before_install:
 # Download and unpack the stack executable

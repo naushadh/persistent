@@ -2,7 +2,9 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE FlexibleContexts #-}
+-- the following pragmas are required until mysql-haskell adds a show instance for its MySQLConnectInfo.
 {-# LANGUAGE StandaloneDeriving #-}
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 
 -- | A MySQL backend for @persistent@.
 module Database.Persist.MySQL
@@ -893,11 +895,15 @@ escapeDBName (DBName s) = '`' : go (T.unpack s)
 -- using @persistent@'s generic facilities.  These values are the
 -- same that are given to 'withMySQLPool'.
 data MySQLConf = MySQLConf
-    { myConnInfo :: MySQLConnectInfo
-      -- ^ The connection information.
-    , myPoolSize :: Int
-      -- ^ How many connections should be held on the connection pool.
-    } deriving Show
+    MySQLConnectInfo   -- ^ The connection information.
+    Int                -- ^ How many connections should be held on the connection pool.
+    deriving Show
+
+myConnInfo :: MySQLConf -> MySQLConnectInfo
+myConnInfo (MySQLConf c _) = c
+
+setMyConnInfo :: MySQLConnectInfo -> MySQLConf -> MySQLConf
+setMyConnInfo c (MySQLConf _ p) = MySQLConf c p
 
 -- | Public constructor for @MySQLConf@.
 mkMySQLConf
@@ -1004,7 +1010,7 @@ instance PersistConfig MySQLConf where
                         , MySQL.ciPassword = maybeEnv password "PASSWORD"
                         , MySQL.ciDatabase = maybeEnv database "DATABASE"
                         }
-        return conf { myConnInfo = MySQLConnectInfo innerCiNew Nothing }
+        return $ setMyConnInfo (MySQLConnectInfo innerCiNew Nothing) conf
 
 mockMigrate :: MySQL.ConnectInfo
          -> [EntityDef]

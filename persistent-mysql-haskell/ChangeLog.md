@@ -1,3 +1,7 @@
+## 0.3.1.0
+- Fixed compiler warnings in `stack --pedantic` mode so the project can run upstream tests on Travis.
+- Minor README enhancements for badges and fixed URL for example when viewing outside of Github.
+
 ## 0.3.0.0
 - Added API for setting [TLS client parameters](https://hackage.haskell.org/package/mysql-haskell-0.8.0.0/docs/Database-MySQL-TLS.html) for secure MySQL connections.
 - Exported [Data.TLSSetting](https://hackage.haskell.org/package/tcp-streams-1.0.0.0/docs/Data-TLSSetting.html) for convenient usage of TLS.
