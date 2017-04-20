@@ -13,7 +13,7 @@ else
     if [ "$BACKEND" = "postgresql" ]
     then
         psql -c 'create database persistent;' -U postgres
-    elif [ "$BACKEND" = "mysql" ]
+    elif [ "$BACKEND" = "mysql" ] || [ "$BACKEND" = "mysql_haskell" ]
     then
         mysql -e 'create database persistent;'
     fi
