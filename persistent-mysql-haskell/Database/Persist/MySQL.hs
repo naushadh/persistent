@@ -2,9 +2,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE FlexibleContexts #-}
--- the following pragmas are required until mysql-haskell adds a show instance for its MySQLConnectInfo.
-{-# LANGUAGE StandaloneDeriving #-}
-{-# OPTIONS_GHC -fno-warn-orphans #-}
 
 -- | A MySQL backend for @persistent@.
 module Database.Persist.MySQL
@@ -58,6 +55,7 @@ import qualified Data.Text.Encoding as T
 
 import Database.Persist.Sql
 import Database.Persist.Sql.Types.Internal (mkPersistBackend)
+import Database.Persist.MySQLConnectInfoShowInstance ()
 import Data.Int (Int64)
 
 import qualified Database.MySQL.Base    as MySQL
@@ -958,9 +956,6 @@ setMySQLConnectInfoTLS
   -> MySQLConnectInfo
 setMySQLConnectInfoTLS tls ci
   = ci {innerConnTLS = Just tls}
-
--- TODO: submit a PR to mysql-haskell to add SHOW instance
-deriving instance Show MySQL.ConnectInfo
 
 instance FromJSON MySQLConf where
     parseJSON v = modifyFailure ("Persistent: error loading MySQL conf: " ++) $
