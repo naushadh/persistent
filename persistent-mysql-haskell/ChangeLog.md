@@ -1,3 +1,6 @@
+## 0.3.2.0
+- Added conditional declaration of `Show` instance for mysql-haskell's `ConnectInfo` for compatibility with `mysql-haskell-0.8.1.0+`.
+
 ## 0.3.1.0
 - Fixed compiler warnings in `stack --pedantic` mode so the project can run upstream tests on Travis.
 - Minor README enhancements for badges and fixed URL for example when viewing outside of Github.

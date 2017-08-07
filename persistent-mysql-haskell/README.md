@@ -91,6 +91,9 @@ Aside from connection configuration, persistent-mysql-haskell is functionally on
 
 - It does! :) `persistent-test` is fully re-used with an additional flag to specifically test persistent-mysql-haskell.
 
+    - [CI/Travis](https://travis-ci.org/naushadh/persistent), see [.travis.yml](../.travis.yml).
+
+    - Local,
     ```bash
     stack test persistent-test --flag persistent-test:mysql_haskell
     ```
