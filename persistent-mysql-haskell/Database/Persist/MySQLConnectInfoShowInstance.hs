@@ -16,8 +16,7 @@ We have a stand-alone package since CPP flags do not like multi-line string lite
 
 module Database.Persist.MySQLConnectInfoShowInstance where
 
-import qualified Database.MySQL.Base    as MySQL
-
 #if !MIN_VERSION_mysql_haskell(0,8,1)
+import qualified Database.MySQL.Base    as MySQL
 deriving instance Show MySQL.ConnectInfo
 #endif
