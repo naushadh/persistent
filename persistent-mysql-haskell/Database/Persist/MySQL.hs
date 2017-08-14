@@ -901,8 +901,8 @@ escapeDBName (DBName s) = '`' : go (T.unpack s)
 -- using @persistent@'s generic facilities.  These values are the
 -- same that are given to 'withMySQLPool'.
 data MySQLConf = MySQLConf
-    MySQLConnectInfo   -- ^ The connection information.
-    Int                -- ^ How many connections should be held on the connection pool.
+    MySQLConnectInfo
+    Int
     deriving Show
 
 myConnInfo :: MySQLConf -> MySQLConnectInfo
