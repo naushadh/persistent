@@ -1,3 +1,6 @@
+## 0.3.4
+- Port from `mysql-haskell`: Extend the `SomeField` type to allow `insertManyOnDuplicateKeyUpdate` to conditionally copy values [#693](https://github.com/yesodweb/persistent/pull/693).
+
 ## 0.3.3
 - Port from `mysql-haskell`: MySQL on duplicate key update [#674](https://github.com/yesodweb/persistent/pull/674).
 

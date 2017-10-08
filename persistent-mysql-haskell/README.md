@@ -95,5 +95,5 @@ Aside from connection configuration, persistent-mysql-haskell is functionally on
 
     - Local,
     ```bash
-    stack test persistent-test --flag persistent-test:mysql_haskell
+    stack test persistent-test --flag persistent-test:mysql_haskell --exec persistent-test
     ```

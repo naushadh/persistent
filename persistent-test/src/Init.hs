@@ -103,7 +103,9 @@ import Database.Persist.Sqlite
 #  endif
 #  ifdef WITH_MYSQL
 import Database.Persist.MySQL
+#  ifndef WITH_MYSQL_HASKELL
 import qualified Database.MySQL.Base as MySQL
+#  endif
 #  endif
 import Data.IORef (newIORef, IORef, writeIORef, readIORef)
 import System.IO.Unsafe (unsafePerformIO)
