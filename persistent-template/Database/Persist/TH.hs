@@ -45,6 +45,7 @@ module Database.Persist.TH
       -- * Internal
     , packPTH
     , lensPTH
+    , parseReferences
     ) where
 
 import Prelude hiding ((++), take, concat, splitAt, exp)
@@ -121,6 +122,7 @@ persistFileWith ps fp = do
 
 -- calls parse to Quasi.parse individual entities in isolation
 -- afterwards, sets references to other entities
+-- | @since 2.5.3
 parseReferences :: PersistSettings -> Text -> Q Exp
 parseReferences ps s = lift $
      map (mkEntityDefSqlTypeExp embedEntityMap entMap) noCycleEnts
@@ -355,7 +357,7 @@ data MkPersistSettings = MkPersistSettings
     --
     -- Default: False
     --
-    -- Since 1.3.1
+    -- @since 1.3.1
     }
 
 data EntityJSON = EntityJSON
@@ -385,7 +387,7 @@ sqlSettings = mkPersistSettings $ ConT ''SqlBackend
 
 -- | Same as 'sqlSettings'.
 --
--- Since 1.1.1
+-- @since 1.1.1
 sqlOnlySettings :: MkPersistSettings
 sqlOnlySettings = sqlSettings
 {-# DEPRECATED sqlOnlySettings "use sqlSettings" #-}
