@@ -56,6 +56,7 @@ import Data.Acquire (Acquire, mkAcquire, with)
 
 import Data.Conduit
 import qualified Data.ByteString.Lazy as BS
+import qualified Data.Conduit as C
 import qualified Data.Conduit.List as CL
 import qualified Data.Map as Map
 import qualified Data.Text as T
@@ -208,24 +209,23 @@ query'
 query' conn qry [] = MySQL.query_ conn qry
 query' conn qry ps = MySQL.query  conn qry ps
 
--- | Execute an statement that does return results.  The results
--- are fetched all at once and stored into memory.
+-- | Execute an statement that does return results.
+-- unlike @persistent-mysql@, we actually _stream_ results.
 withStmt' :: MonadIO m
           => MySQL.MySQLConn
           -> MySQL.Query
           -> [PersistValue]
-          -> Acquire (Source m [PersistValue])
+          -> Acquire (C.Source m [PersistValue])
 withStmt' conn query vals = do
     result <- mkAcquire createResult releaseResult
-    return $ fetchRows result >>= CL.sourceList
+    fetchRows result
   where
     createResult = return $ query' conn query (map P vals)
     releaseResult _ = return ()
 
-    fetchRows result = liftIO $ do
+    fetchRows result' = liftIO $ do
       -- Find out the type of the columns
-      (fields, is) <- result
-      -- let getters = [ maybe PersistNull (getGetter f f . Just) | f <- fields]
+      (fields, is) <- result'
       let getters = fmap getGetter fields
           convert = use getters
             where use (g:gs) (col:cols) =
@@ -234,14 +234,7 @@ withStmt' conn query vals = do
                     in v `seq` vs `seq` (v:vs)
                   use _ _ = []
 
-      -- Ready to go!
-      let go acc = do
-            row <- Streams.read is
-            case row of
-              Nothing  -> return (acc [])
-              (Just r) -> let converted = convert r
-                    in converted `seq` go (acc . (converted:))
-      go id
+      Streams.fold (\c r -> c >> C.yield (convert r)) CL.sourceNull is
 
 -- | Encode a Haskell bool into a MySQLValue
 encodeBool :: Bool -> MySQL.MySQLValue

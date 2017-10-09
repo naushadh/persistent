@@ -20,12 +20,15 @@ Reasons to use a pure haskell driver:
 
 - better portability and possible static compilation of an entire project that uses `persistent-mysql`.
 
+- result streaming support means persistent [`selectSource` won't load all rows into memory at once](http://www.jakubkonka.com/2014/01/23/conduit-haskell.html). Effectively addressing [#657](https://github.com/yesodweb/persistent/issues/657).
+
+- a newtype-d `MySQLConnectInfo` allows adding configuring _how_ persistent and the underlying driver are glued. Ex: [#679](https://github.com/yesodweb/persistent/issues/679) can be elegantly addressed in this library.
 
 Personal experience on replacing `mysql-simple` with `mysql-haskell` in a project:
 
 - Performance gains consistent with benchmark.
 
-- Smoother deployment to [Amazon AMI/EC2](https://en.wikipedia.org/wiki/Amazon_Machine_Image), since `mysql` appears to have a hard dependency on the oracle version of `libmysqlclient` that does not work with the open source variant that is available by default on EC2 (and possibly on other cloud providers).
+- Smoother deployment to [AWS](https://en.wikipedia.org/wiki/Amazon_Machine_Image), since `mysql` appears to have a hard dependency on the oracle version of `libmysqlclient` that does not work with the open source variant that is available by default on Amazon Linux (and possibly on other Linux distros).
 
 ### Potential issues moving from persistent-mysql to persistent-mysql-haskell
 
