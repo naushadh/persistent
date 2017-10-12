@@ -1,6 +1,7 @@
 ## 0.3.4
 - Port [#693](https://github.com/yesodweb/persistent/pull/693) from `mysql-haskell`: Extend the `SomeField` type to allow `insertManyOnDuplicateKeyUpdate` to conditionally copy values.
 - Port [#702](https://github.com/yesodweb/persistent/pull/702) from `mysql-haskell`: Fix behavior of `insertManyOnDuplicateKeyUpdate` to ignore duplicate key exceptions when no updates specified.
+- Bumped TLS bounds to be in [sync with `mysql-haskell`](https://github.com/winterland1989/mysql-haskell/pull/15) and land ourselves [back on stackage](https://github.com/fpco/stackage/pull/2956).
 
 ## 0.3.3
 - Port from `mysql-haskell`: MySQL on duplicate key update [#674](https://github.com/yesodweb/persistent/pull/674).
