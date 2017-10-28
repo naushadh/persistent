@@ -1104,11 +1104,11 @@ insertOnDuplicateKeyUpdate record =
 -- @INSERT ON DUPLICATE KEY UPDATE@ functionality, exposed via
 -- 'insertManyOnDuplicateKeyUpdate' in the library.
 data SomeField record where
+  -- | Copy the field directly from the record.
   SomeField :: EntityField record typ -> SomeField record
-  -- ^ Copy the field directly from the record.
-  CopyUnlessEq :: PersistField typ => EntityField record typ -> typ -> SomeField record
-  -- ^ Only copy the field if it is not equal to the provided value.
+  -- | Only copy the field if it is not equal to the provided value.
   -- @since 2.6.2
+  CopyUnlessEq :: PersistField typ => EntityField record typ -> typ -> SomeField record
 
 -- | Copy the field into the database only if the value in the
 -- corresponding record is non-@NULL@.
