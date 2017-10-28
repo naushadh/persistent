@@ -216,25 +216,21 @@ withStmt' :: MonadIO m
           -> MySQL.Query
           -> [PersistValue]
           -> Acquire (C.Source m [PersistValue])
-withStmt' conn query vals = do
-    result <- mkAcquire createResult releaseResult
-    fetchRows result
+withStmt' conn query vals
+  = fetchRows <$> mkAcquire createResult releaseResult
   where
-    createResult = return $ query' conn query (map P vals)
-    releaseResult _ = return ()
-
-    fetchRows result' = liftIO $ do
+    createResult = query' conn query (map P vals)
+    releaseResult (_, is) = Streams.skipToEof is
+    fetchRows (fields, is) = CL.unfoldM getVal is
+      where
       -- Find out the type of the columns
-      (fields, is) <- result'
-      let getters = fmap getGetter fields
+          getters = fmap getGetter fields
           convert = zipWith (\g -> \c -> g c) getters
           getVal s = do
             v <- liftIO $ Streams.read s
-            return $ case v of
-              (Just r)  -> Just (convert r, s)
-              _         -> Nothing
-      return $ CL.unfoldM getVal is
-      -- Streams.fold (\c r -> c >> C.yield (convert r)) CL.sourceNull is
+            case v of
+              (Just r)  -> pure $ Just (convert r, s)
+              _         -> pure Nothing
 
 -- | Encode a Haskell bool into a MySQLValue
 encodeBool :: Bool -> MySQL.MySQLValue
