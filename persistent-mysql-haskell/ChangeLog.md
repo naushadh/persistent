@@ -1,3 +1,6 @@
+## 0.3.5
+- Updated `selectSource` implementation to stream results instead of loading everything into memory.
+
 ## 0.3.4.1
 - Fix a haddock issue down-streamed from [#693](https://github.com/yesodweb/persistent/pull/693).
 

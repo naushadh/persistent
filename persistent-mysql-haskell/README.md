@@ -20,7 +20,7 @@ Reasons to use a pure haskell driver:
 
 - better portability and possible static compilation of an entire project that uses `persistent-mysql`.
 
-- result streaming support means persistent [`selectSource` won't load all rows into memory at once](http://www.jakubkonka.com/2014/01/23/conduit-haskell.html). Effectively addressing [#657](https://github.com/yesodweb/persistent/issues/657).
+- result streaming support means persistent [`selectSource` streams data from database](http://www.jakubkonka.com/2014/01/23/conduit-haskell.html). Effectively addressing [#657 selectSource does not stream results](https://github.com/yesodweb/persistent/issues/657).
 
 - a newtype-d `MySQLConnectInfo` allows adding configuring _how_ persistent and the underlying driver are glued. Ex: [#679](https://github.com/yesodweb/persistent/issues/679) can be elegantly addressed in this library.
 
