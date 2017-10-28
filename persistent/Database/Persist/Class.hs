@@ -23,6 +23,7 @@ module Database.Persist.Class
     , PersistUniqueWrite (..)
     , getByValue
     , insertBy
+    , insertUniqueEntity
     , replaceUnique
     , checkUnique
     , onlyUnique
@@ -52,6 +53,7 @@ module Database.Persist.Class
     , HasPersistBackend (..)
     , IsPersistBackend ()
     , liftPersist
+    , BackendCompatible (..)
 
     -- * JSON utilities
     , keyValueEntityToJSON, keyValueEntityFromJSON
