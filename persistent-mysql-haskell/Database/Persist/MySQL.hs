@@ -227,14 +227,14 @@ withStmt' conn query vals = do
       -- Find out the type of the columns
       (fields, is) <- result'
       let getters = fmap getGetter fields
-          convert = use getters
-            where use (g:gs) (col:cols) =
-                    let v  = g col
-                        vs = use gs cols
-                    in v `seq` vs `seq` (v:vs)
-                  use _ _ = []
-
-      Streams.fold (\c r -> c >> C.yield (convert r)) CL.sourceNull is
+          convert = zipWith (\g -> \c -> g c) getters
+          getVal s = do
+            v <- liftIO $ Streams.read s
+            return $ case v of
+              (Just r)  -> Just (convert r, s)
+              _         -> Nothing
+      return $ CL.unfoldM getVal is
+      -- Streams.fold (\c r -> c >> C.yield (convert r)) CL.sourceNull is
 
 -- | Encode a Haskell bool into a MySQLValue
 encodeBool :: Bool -> MySQL.MySQLValue
