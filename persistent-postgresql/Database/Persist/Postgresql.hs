@@ -221,14 +221,14 @@ getServerVersion conn = do
     Right (a,_) -> return $ Just a
     Left err -> throwIO $ PostgresServerVersionError err
 
--- | Choose upsert sql generation function based on postgresql version.
+-- | Choose upsert* sql generation function based on postgresql version.
 -- PostgreSQL version >= 9.5 supports native upsert feature,
 -- so depending upon that we have to choose how the sql query is generated.
-upsertFunction :: Double -> Maybe (EntityDef -> Text -> Text)
-upsertFunction version = if (version >= 9.5)
-                         then Just upsertSql'
-                         else Nothing
-
+upsertFeature :: a -> Double -> Maybe a
+upsertFeature f version
+  = if (version >= 9.5)
+    then Just f
+    else Nothing
 
 -- | Generate a 'Connection' from a 'PG.Connection'
 openSimpleConn :: (IsSqlBackend backend) => LogFunc -> PG.Connection -> IO backend
@@ -247,7 +247,8 @@ createBackend logFunc serverVersion smap conn = do
         , connStmtMap    = smap
         , connInsertSql  = insertSql'
         , connInsertManySql = Just insertManySql'
-        , connUpsertSql  = maybe Nothing upsertFunction serverVersion
+        , connUpsertSql  = serverVersion >>= upsertFeature upsertSql'
+        , connUpsertMany_Sql = serverVersion >>= upsertFeature upsertManySql'
         , connClose      = PG.close conn
         , connMigrateSql = migrate'
         , connBegin      = const $ PG.begin    conn
@@ -315,6 +316,11 @@ upsertSql' ent updateVal = T.concat
 
       singleClause :: DBName -> Text
       singleClause field = escape (entityDB ent) <> "." <> (escape field) <> " =?"
+
+upsertManySql' :: ((Text -> Text), Text)
+upsertManySql' = (excludedField, "ON CONFLICT DO UPDATE SET")
+  where
+    excludedField f = "EXCLUDED" <> "." <> f
 
 -- | SQL for inserting multiple rows at once and returning their primary keys.
 insertManySql' :: EntityDef -> [[PersistValue]] -> InsertSqlResult
@@ -1159,6 +1165,7 @@ mockMigration mig = do
                              connInsertManySql = Nothing,
                              connInsertSql = undefined,
                              connUpsertSql = Nothing,
+                             connUpsertMany_Sql = Nothing,
                              connStmtMap = smap,
                              connClose = undefined,
                              connMigrateSql = mockMigrate,

@@ -254,7 +254,7 @@ instance PersistStoreWrite SqlBackend where
       where
         go conn x = connEscapeName conn x `T.append` "=?"
 
-    insertKey k v = insrepHelper "INSERT" [Entity k v]
+    insertKey k v = insrepHelper [Entity k v]
 
     insertEntityMany es' = do
         conn <- ask
@@ -262,7 +262,7 @@ instance PersistStoreWrite SqlBackend where
         let columnNames = keyAndEntityColumnNames entDef conn
         runChunked (length columnNames) go es'
       where
-        go es = insrepHelper "INSERT" es
+        go es = insrepHelper es
 
     repsert key value = do
         mExisting <- get key
@@ -342,19 +342,17 @@ recordTypeFromKey :: Key record -> record
 recordTypeFromKey _ = error "dummyFromKey"
 
 insrepHelper :: (MonadIO m, PersistEntity val)
-             => Text
-             -> [Entity val]
+             => [Entity val]
              -> ReaderT SqlBackend m ()
-insrepHelper _       []  = pure ()
-insrepHelper command es = do
+insrepHelper [] = pure ()
+insrepHelper es = do
     conn <- ask
     let columnNames = keyAndEntityColumnNames entDef conn
     rawExecute (sql conn columnNames) vals
   where
     entDef = entityDef $ map entityVal es
     sql conn columnNames = T.concat
-        [ command
-        , " INTO "
+        [ "INSERT INTO "
         , connEscapeName conn (entityDB entDef)
         , "("
         , T.intercalate "," columnNames

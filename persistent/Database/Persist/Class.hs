@@ -59,6 +59,12 @@ module Database.Persist.Class
     , keyValueEntityToJSON, keyValueEntityFromJSON
     , entityIdToJSON, entityIdFromJSON
     , toPersistValueJSON, fromPersistValueJSON
+
+    -- * upsert utils
+    , SomeField(SomeField)
+    , copyUnlessNull
+    , copyUnlessEmpty
+    , copyUnlessEq
     ) where
 
 import Database.Persist.Class.DeleteCascade

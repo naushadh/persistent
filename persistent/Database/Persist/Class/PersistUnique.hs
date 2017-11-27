@@ -1,5 +1,6 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE TypeFamilies, FlexibleContexts, ConstraintKinds #-}
+{-# LANGUAGE RankNTypes #-}
 
 module Database.Persist.Class.PersistUnique
   (PersistUniqueRead(..)
@@ -9,7 +10,9 @@ module Database.Persist.Class.PersistUnique
   ,insertUniqueEntity
   ,replaceUnique
   ,checkUnique
-  ,onlyUnique)
+  ,onlyUnique
+  ,defaultUpsertMany
+  )
   where
 
 import Database.Persist.Types
@@ -22,6 +25,8 @@ import Database.Persist.Class.PersistStore
 import Database.Persist.Class.PersistEntity
 import Data.Monoid (mappend)
 import Data.Text (unpack, Text)
+import qualified Data.Maybe as Maybe
+import Data.Functor.Constant (Constant(Constant, getConstant))
 
 -- | Queries against 'Unique' keys (other than the id 'Key').
 --
@@ -105,6 +110,150 @@ class (PersistUniqueRead backend, PersistStoreWrite backend) =>
       where
         updateGetEntity (Entity k _) upds =
             (Entity k) `liftM` (updateGet k upds)
+
+    -- | Do a bulk insert on the given records in the first parameter. In the event
+    -- that a key conflicts with a record currently in the database, the second and
+    -- third parameters determine what will happen.
+    --
+    -- The second parameter is a list of fields to copy from the original value.
+    -- This allows you to specify which fields to copy from the record you're trying
+    -- to insert into the database to the preexisting row.
+    --
+    -- The third parameter is a list of updates to perform that are independent of
+    -- the value that is provided. You can use this to increment a counter value.
+    -- These updates only occur if the original record is present in the database.
+    --
+    -- === __More details on 'SomeField' usage__
+    --
+    -- The @['SomeField']@ parameter allows you to specify which fields (and
+    -- under which conditions) will be copied from the inserted rows. For
+    -- a brief example, consider the following data model and existing data set:
+    --
+    -- @
+    -- Item
+    --   name        Text
+    --   description Text
+    --   price       Double Maybe
+    --   quantity    Int Maybe
+    --
+    --   Primary name
+    -- @
+    --
+    -- > items:
+    -- > +------+-------------+-------+----------+
+    -- > | name | description | price | quantity |
+    -- > +------+-------------+-------+----------+
+    -- > | foo  | very good   |       |    3     |
+    -- > | bar  |             |  3.99 |          |
+    -- > +------+-------------+-------+----------+
+    --
+    -- This record type has a single natural key on @itemName@. Let's suppose
+    -- that we download a CSV of new items to store into the database. Here's
+    -- our CSV:
+    --
+    -- > name,description,price,quantity
+    -- > foo,,2.50,6
+    -- > bar,even better,,5
+    -- > yes,wow,,
+    --
+    -- We parse that into a list of Haskell records:
+    --
+    -- @
+    -- records =
+    --   [ Item { itemName = "foo", itemDescription = ""
+    --          , itemPrice = Just 2.50, itemQuantity = Just 6
+    --          }
+    --   , Item "bar" "even better" Nothing (Just 5)
+    --   , Item "yes" "wow" Nothing Nothing
+    --   ]
+    -- @
+    --
+    -- The new CSV data is partial. It only includes __updates__ from the
+    -- upstream vendor. Our CSV library parses the missing description field as
+    -- an empty string. We don't want to override the existing description. So
+    -- we can use the 'copyUnlessEmpty' function to say: "Don't update when the
+    -- value is empty."
+    --
+    -- Likewise, the new row for @bar@ includes a quantity, but no price. We do
+    -- not want to overwrite the existing price in the database with a @NULL@
+    -- value. So we can use 'copyUnlessNull' to only copy the existing values
+    -- in.
+    --
+    -- The final code looks like this:
+    -- @
+    -- 'insertManyOnDuplicateKeyUpdate' records
+    --   [ 'copyUnlessEmpty' ItemDescription
+    --   , 'copyUnlessNull' ItemPrice
+    --   , 'copyUnlessNull' ItemQuantity
+    --   ]
+    --   []
+    -- @
+    --
+    -- Once we run that code on the datahase, the new data set looks like this:
+    --
+    -- > items:
+    -- > +------+-------------+-------+----------+
+    -- > | name | description | price | quantity |
+    -- > +------+-------------+-------+----------+
+    -- > | foo  | very good   |  2.50 |    6     |
+    -- > | bar  | even better |  3.99 |    5     |
+    -- > | yes  | wow         |       |          |
+    -- > +------+-------------+-------+----------+
+    upsertMany_
+        ::( MonadIO m
+          , PersistRecordBackend record backend
+          , Eq record
+          )
+        => [record]             -- ^ A list of the records you want to insert, or update
+        -> [SomeField record]   -- ^ A list of the fields you want to copy over.
+        -> [Update record]      -- ^ A list of the updates to apply that aren't dependent on the record being inserted.
+        -> ReaderT backend m ()
+    upsertMany_ = defaultUpsertMany
+
+-- | The slow but generic 'upsertMany_' implemetation for any 'PersistUniqueRead'.
+defaultUpsertMany
+    ::( PersistEntityBackend record ~ BaseBackend backend
+      , PersistEntity record
+      , MonadIO m
+      , Eq record
+      , PersistStoreWrite backend
+      , PersistUniqueRead backend
+      )
+    => [record]             -- ^ A list of the records you want to insert, or update
+    -> [SomeField record]   -- ^ A list of the fields you want to copy over.
+    -> [Update record]      -- ^ A list of the updates to apply that aren't dependent on the record being inserted.
+    -> ReaderT backend m ()
+defaultUpsertMany [] _  _  = return ()
+defaultUpsertMany rs fs us = do
+    -- lookup record(s) by their unique key
+    mEsOld <- mapM getByValue rs
+
+    -- differentiate pre-existing records and new ones
+    let merge (Just x) y = Just (x, y)
+        merge _        _ = Nothing
+    let mEsOldAndRs = zipWith merge mEsOld rs
+    let esOldAndRs = Maybe.catMaybes mEsOldAndRs
+    let rsOld = fmap snd esOldAndRs
+    let esOld = fmap fst esOldAndRs
+    let rsNew = rs \\ rsOld
+
+    -- update `old` records
+    let toUpdate e (SomeField f) = [Update f (view e (fieldLens f)) Assign]
+        toUpdate e (CopyUnlessEq f v)
+          = if val == v
+            then []
+            else [Update f val Assign]
+          where
+            val = view e (fieldLens f)
+    let usFromFs e = concat $ toUpdate e `fmap` fs
+    let doUpdate eOld = update k usAll
+          where
+            k = entityKey eOld
+            usAll = us ++ (usFromFs eOld)
+    _ <- mapM doUpdate esOld
+
+    -- insert `new` records
+    insertMany_ rsNew
 
 -- | Insert a value, checking for conflicts with any unique constraints.  If a
 -- duplicate exists in the database, it is returned as 'Left'. Otherwise, the
@@ -249,3 +398,10 @@ checkUniqueKeys (x:xs) = do
     case y of
         Nothing -> checkUniqueKeys xs
         Just _ -> return (Just x)
+
+-- Lens utils
+
+type Getting r s t a b = (a -> Constant r b) -> s -> Constant r t
+
+view :: s -> Getting a s t a b -> a
+view s l = getConstant (l Constant s)

@@ -154,6 +154,7 @@ wrapConnectionInfo connInfo conn logFunc = do
         , connStmtMap = smap
         , connInsertSql = insertSql'
         , connUpsertSql = Nothing
+        , connUpsertMany_Sql = Nothing
         , connInsertManySql = Nothing
         , connClose = Sqlite.close conn
         , connMigrateSql = migrate'
@@ -345,6 +346,7 @@ mockMigration mig = do
                    , connLimitOffset = decorateSQLWithLimitOffset "LIMIT -1"
                    , connLogFunc = undefined
                    , connUpsertSql = undefined
+                   , connUpsertMany_Sql = undefined
                    , connMaxParams = Just 999
                    }
       result = runReaderT . runWriterT . runWriterT $ mig

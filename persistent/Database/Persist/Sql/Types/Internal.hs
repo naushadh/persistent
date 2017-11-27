@@ -81,6 +81,18 @@ data SqlBackend = SqlBackend
     -- * return new entity from db
     --
     -- @since 2.6
+    , connUpsertMany_Sql
+        :: Maybe ((Text -> Text), Text)
+    -- ^ Some databases support performing UPSERTing many entity
+    -- in a single call.
+    --
+    -- This field when set will be used to generate the 'upsertMany_' sql given
+    -- * wrapper to reference a 'EntityField' name from the values/excluded set
+    -- * clause to signify the beginning of conflict resolution
+    --
+    -- When left as 'Nothing', we resort to the slower 'defaultUpsertMany'.
+    --
+    -- @since 2.8
     , connStmtMap :: IORef (Map Text Statement)
     , connClose :: IO ()
     , connMigrateSql

@@ -5,6 +5,8 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE FlexibleContexts, StandaloneDeriving, UndecidableInstances #-}
+{-# LANGUAGE GADTs #-}
+
 module Database.Persist.Class.PersistEntity
     ( PersistEntity (..)
     , Update (..)
@@ -20,6 +22,11 @@ module Database.Persist.Class.PersistEntity
       -- * PersistField based on other typeclasses
     , toPersistValueJSON, fromPersistValueJSON
     , toPersistValueEnum, fromPersistValueEnum
+
+    , SomeField(SomeField, CopyUnlessEq)
+    , copyUnlessNull
+    , copyUnlessEmpty
+    , copyUnlessEq
     ) where
 
 import Database.Persist.Types.Base
@@ -39,6 +46,7 @@ import Data.Aeson.Encode (encodeToTextBuilder)
 #endif
 import Data.Attoparsec.ByteString (parseOnly)
 import Control.Applicative as A ((<$>), (<*>))
+import qualified Data.Monoid as Monoid
 import Data.Monoid (mappend)
 import qualified Data.HashMap.Strict as HM
 import Data.Typeable (Typeable)
@@ -361,3 +369,34 @@ fromPersistValueEnum v = fromPersistValue v >>= go
                  then Right res
                  else Left ("The number " `mappend` T.pack (show i) `mappend` " was out of the "
                   `mappend` "allowed bounds for an enum type")
+
+-- | This type is used to determine how to update rows via 'upsertMany'
+-- @since 2.8
+data SomeField record where
+  -- | Copy the field directly from the record.
+  SomeField :: PersistField typ => EntityField record typ -> SomeField record
+  -- | Only copy the field if it is not equal to the provided value.
+  CopyUnlessEq :: (PersistField typ, Eq typ) => EntityField record typ -> typ -> SomeField record
+
+-- | Copy the field into the database only if the value in the
+-- corresponding record is non-@NULL@.
+--
+-- @since 2.8
+copyUnlessNull :: (PersistField typ, Eq typ) => EntityField record (Maybe typ) -> SomeField record
+copyUnlessNull field = CopyUnlessEq field Nothing
+
+-- | Copy the field into the database only if the value in the
+-- corresponding record is non-empty, where "empty" means the Monoid
+-- definition for 'mempty'. Useful for 'Text', 'String', 'ByteString', etc.
+--
+-- @since 2.8
+copyUnlessEmpty :: (Monoid.Monoid typ, PersistField typ, Eq typ) => EntityField record typ -> SomeField record
+copyUnlessEmpty field = CopyUnlessEq field Monoid.mempty
+
+-- | Copy the field into the database only if the field is not equal to the
+-- provided value. This is useful to avoid copying weird nullary data into
+-- the database.
+--
+-- @since 2.8
+copyUnlessEq :: (PersistField typ, Eq typ) => EntityField record typ -> typ -> SomeField record
+copyUnlessEq = CopyUnlessEq
