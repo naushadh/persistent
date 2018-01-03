@@ -74,6 +74,7 @@ library
                      SumTypeTest
                      MigrationOnlyTest
                      MigrationTest
+                     MigrationIdempotencyTest
                      PersistUniqueTest
                      CompositeTest
                      Init
@@ -82,6 +83,7 @@ library
                      CustomPersistFieldTest
                      CustomPrimaryKeyReferenceTest
                      InsertDuplicateUpdate
+                     MigrationColumnLengthTest
 
     hs-source-dirs: src, test
 
@@ -196,6 +198,8 @@ executable persistent-test
                  , resourcet
                  , scientific
 
+  if !flag(postgresql) && !flag(mysql) && !flag(mongodb) && !flag(zookeeper)
+      cpp-options: -DWITH_SQLITE -DDEBUG
   if flag(zookeeper)
       cpp-options: -DWITH_NOSQL -DWITH_ZOOKEEPER -DDEBUG
   if flag(mongodb)
