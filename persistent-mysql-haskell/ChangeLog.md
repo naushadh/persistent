@@ -1,3 +1,6 @@
+## 0.3.6
+- Port [#752](https://github.com/yesodweb/persistent/pull/754) from `persistent-mysql`: Fix mysql sqltype migrations.
+
 ## 0.3.5
 - Updated `selectSource` implementation to stream results instead of loading everything into memory.
 
@@ -5,15 +8,15 @@
 - Fix a haddock issue down-streamed from [#693](https://github.com/yesodweb/persistent/pull/693).
 
 ## 0.3.4
-- Port [#693](https://github.com/yesodweb/persistent/pull/693) from `mysql-haskell`: Extend the `SomeField` type to allow `insertManyOnDuplicateKeyUpdate` to conditionally copy values.
-- Port [#702](https://github.com/yesodweb/persistent/pull/702) from `mysql-haskell`: Fix behavior of `insertManyOnDuplicateKeyUpdate` to ignore duplicate key exceptions when no updates specified.
+- Port [#693](https://github.com/yesodweb/persistent/pull/693) from `persistent-mysql`: Extend the `SomeField` type to allow `insertManyOnDuplicateKeyUpdate` to conditionally copy values.
+- Port [#702](https://github.com/yesodweb/persistent/pull/702) from `persistent-mysql`: Fix behavior of `insertManyOnDuplicateKeyUpdate` to ignore duplicate key exceptions when no updates specified.
 - Bumped TLS bounds to be in [sync with `mysql-haskell`](https://github.com/winterland1989/mysql-haskell/pull/15) and land ourselves [back on stackage](https://github.com/fpco/stackage/pull/2956).
 
 ## 0.3.3
-- Port from `mysql-haskell`: MySQL on duplicate key update [#674](https://github.com/yesodweb/persistent/pull/674).
+- Port from `persistent-mysql`: MySQL on duplicate key update [#674](https://github.com/yesodweb/persistent/pull/674).
 
 ## 0.3.2.1
-- Port from `mysql-haskell`: Prevent spurious no-op migrations when `default=NULL` is specified - revised version [#672](https://github.com/yesodweb/persistent/pull/672) (which fixes bug [#671](https://github.com/yesodweb/persistent/issues/671) introduced by the earlier attempt [#641](https://github.com/yesodweb/persistent/pull/641)).
+- Port from `persistent-mysql`: Prevent spurious no-op migrations when `default=NULL` is specified - revised version [#672](https://github.com/yesodweb/persistent/pull/672) (which fixes bug [#671](https://github.com/yesodweb/persistent/issues/671) introduced by the earlier attempt [#641](https://github.com/yesodweb/persistent/pull/641)).
 
 ## 0.3.2.0
 - Added conditional declaration of `Show` instance for mysql-haskell's `ConnectInfo` for compatibility with `mysql-haskell-0.8.1.0+`.
