@@ -17,18 +17,7 @@ services:
 
 matrix:
   include:
-  - env: ARGS="--resolver lts-6" BACKEND=none
-  - env: ARGS="--resolver lts-6" BACKEND=sqlite
-  - env: ARGS="--resolver lts-6" BACKEND=mongodb
-  - env: ARGS="--resolver lts-6" BACKEND=postgresql
-  - env: ARGS="--resolver lts-6" BACKEND=mysql
   - env: ARGS="--resolver lts-6" BACKEND=mysql_haskell
-
-  - env: ARGS="" BACKEND=none
-  - env: ARGS="" BACKEND=sqlite
-  - env: ARGS="" BACKEND=mongodb
-  - env: ARGS="" BACKEND=postgresql
-  - env: ARGS="" BACKEND=mysql
   - env: ARGS="" BACKEND=mysql_haskell
 
 before_install:
@@ -42,7 +31,7 @@ before_install:
 # commented out line if #717 is not merged, or when testing lts-2 is dropped.
 # script: travis/run.sh
 script:
-- if [[ $ARGS =~ lts-2 ]]; then stack $ARGS --install-ghc install happy; fi
+- if [[ $ARGS =~ lts-2 ]] || [[ $ARGS =~ lts-6 ]]; then stack $ARGS --install-ghc install happy; fi
 - travis/run.sh
 
 cache:
