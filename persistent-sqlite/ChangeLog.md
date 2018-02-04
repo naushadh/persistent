@@ -1,3 +1,7 @@
+## 2.8.1
+
+* Updated `SqlBackend` definition to set `connPutManySql`. [#770](https://github.com/yesodweb/persistent/pull/770)
+
 ## 2.8.0
 
 * Switch from `MonadBaseControl` to `MonadUnliftIO`
