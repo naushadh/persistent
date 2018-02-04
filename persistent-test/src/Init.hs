@@ -112,7 +112,7 @@ import System.IO.Unsafe (unsafePerformIO)
 #endif
 
 import Control.Monad (unless, (>=>))
-import Control.Monad.Trans.Control (MonadBaseControl)
+import Control.Monad.IO.Unlift (MonadUnliftIO)
 
 -- Data types
 import Data.Int (Int32, Int64)
@@ -193,7 +193,7 @@ dbName = "persistent"
 type BackendMonad = Context
 
 #ifdef WITH_MONGODB
-runConn :: (MonadIO m, MonadBaseControl IO m) => Action m backend -> m ()
+runConn :: MonadUnliftIO m => Action m backend -> m ()
 runConn f = do
   conf <- liftIO $ applyDockerEnv $ defaultMongoConf dbName -- { mgRsPrimary = Just "replicaset" }
   void $ withMongoPool conf $ runMongoDBPool MongoDB.master f
@@ -203,7 +203,7 @@ setupMongo = void $ MongoDB.dropDatabase dbName
 #endif
 
 #ifdef WITH_ZOOKEEPER
-runConn :: (MonadIO m, MonadBaseControl IO m) => Action m backend -> m ()
+runConn :: MonadUnliftIO m => Action m backend -> m ()
 runConn f = do
   let conf = defaultZookeeperConf {zCoord = "localhost:2181/" ++ T.unpack dbName}
   void $ withZookeeperPool conf $ runZookeeperPool f
@@ -227,7 +227,7 @@ persistSettings = sqlSettings { mpsGeneric = True }
 type BackendMonad = SqlBackend
 #  ifdef WITH_SQLITE
 sqlite_database_file :: Text
-sqlite_database_file = "test/testdb.sqlite3"
+sqlite_database_file = "testdb.sqlite3"
 sqlite_database :: SqliteConnectionInfo
 sqlite_database = mkSqliteConnectionInfo sqlite_database_file
 #  else
@@ -236,7 +236,7 @@ sqlite_database_file = error "Sqlite tests disabled"
 sqlite_database :: ()
 sqlite_database = error "Sqlite tests disabled"
 #  endif
-runConn :: (MonadIO m, MonadBaseControl IO m) => SqlPersistT (LoggingT m) t -> m ()
+runConn :: MonadUnliftIO m => SqlPersistT (LoggingT m) t -> m ()
 runConn f = do
   travis <- liftIO isTravis
   let debugPrint = not travis && _debugOn
