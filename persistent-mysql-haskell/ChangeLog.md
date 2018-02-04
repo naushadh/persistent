@@ -1,3 +1,10 @@
+## 0.4.0
+
+- Port [#770](https://github.com/yesodweb/persistent/pull/770) from `persistent-mysql`: Performance enhancements for bulk writes.
+- Port [#773](https://github.com/yesodweb/persistent/pull/773) from `persistent-mysql`: Support new conduit release. Includes bundled changes from other PRs.
+  - [#723](https://github.com/yesodweb/persistent/pull/723) More BackendCompatible generalizations.
+  - [#760](https://github.com/yesodweb/persistent/pull/760) Rename SomeField type to HandleUpdateCollision.
+
 ## 0.3.6
 - Port [#752](https://github.com/yesodweb/persistent/pull/754) from `persistent-mysql`: Fix mysql sqltype migrations.
 

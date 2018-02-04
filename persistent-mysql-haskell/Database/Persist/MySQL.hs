@@ -1,3 +1,6 @@
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE CPP #-}
+{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -17,9 +20,17 @@ module Database.Persist.MySQL
   , MySQLConf
   , mkMySQLConf
   , mockMigration
+  -- * @ON DUPLICATE KEY UPDATE@ Functionality
   , insertOnDuplicateKeyUpdate
   , insertManyOnDuplicateKeyUpdate
-  , SomeField(SomeField)
+#if MIN_VERSION_base(4,7,0)
+    , HandleUpdateCollision
+    , pattern SomeField
+#elif MIN_VERSION_base(4,9,0)
+    , HandleUpdateCollision(SomeField)
+#endif
+    , SomeField
+    , copyField
   , copyUnlessNull
   , copyUnlessEmpty
   , copyUnlessEq
@@ -36,7 +47,7 @@ import Control.Monad.Logger (MonadLogger, runNoLoggingT)
 import Control.Monad.IO.Class (MonadIO (..))
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Except (runExceptT)
-import Control.Monad.Trans.Reader (runReaderT)
+import Control.Monad.Trans.Reader (runReaderT, ReaderT)
 import Control.Monad.Trans.Writer (runWriterT)
 import Data.Either (partitionEithers)
 import Data.Monoid ((<>))
@@ -54,9 +65,8 @@ import Text.Read (readMaybe)
 import System.Environment (getEnvironment)
 import Data.Acquire (Acquire, mkAcquire, with)
 
-import Data.Conduit
+import           Data.Conduit (ConduitM, (.|), runConduit, runConduitRes)
 import qualified Data.ByteString.Lazy as BS
-import qualified Data.Conduit as C
 import qualified Data.Conduit.List as CL
 import qualified Data.Map as Map
 import qualified Data.Text as T
@@ -64,6 +74,7 @@ import qualified Data.Text.Encoding as T
 
 import Database.Persist.Sql
 import Database.Persist.Sql.Types.Internal (mkPersistBackend)
+import Database.Persist.Sql.Util (commaSeparated, mkUpdateText', parenWrapped)
 import Database.Persist.MySQLConnectInfoShowInstance ()
 import Data.Int (Int64)
 
@@ -76,15 +87,14 @@ import qualified Data.Time.LocalTime    as Time
 import qualified Data.ByteString.Char8  as BSC
 import qualified Network.Socket         as NetworkSocket
 import qualified Data.Word              as Word
+import Control.Monad.IO.Unlift (MonadUnliftIO)
 
-import Control.Monad.Trans.Control (MonadBaseControl)
-import Control.Monad.Trans.Resource (runResourceT)
-
+import Prelude
 -- | Create a MySQL connection pool and run the given action.
 -- The pool is properly released after the action finishes using
 -- it.  Note that you should not use the given 'ConnectionPool'
 -- outside the action since it may be already been released.
-withMySQLPool :: (MonadIO m, MonadLogger m, MonadBaseControl IO m, IsSqlBackend backend)
+withMySQLPool :: (MonadLogger m, MonadUnliftIO m, IsSqlBackend backend)
               => MySQLConnectInfo
               -- ^ Connection information.
               -> Int
@@ -98,7 +108,7 @@ withMySQLPool ci = withSqlPool $ open' ci
 -- | Create a MySQL connection pool.  Note that it's your
 -- responsibility to properly close the connection pool when
 -- unneeded.  Use 'withMySQLPool' for automatic resource control.
-createMySQLPool :: (MonadBaseControl IO m, MonadIO m, MonadLogger m, IsSqlBackend backend)
+createMySQLPool :: (MonadUnliftIO m, MonadLogger m, IsSqlBackend backend)
                 => MySQLConnectInfo
                 -- ^ Connection information.
                 -> Int
@@ -109,7 +119,7 @@ createMySQLPool ci = createSqlPool $ open' ci
 
 -- | Same as 'withMySQLPool', but instead of opening a pool
 -- of connections, only one connection is opened.
-withMySQLConn :: (MonadBaseControl IO m, MonadIO m, MonadLogger m, IsSqlBackend backend)
+withMySQLConn :: (MonadUnliftIO m, MonadLogger m, IsSqlBackend backend)
               => MySQLConnectInfo
               -- ^ Connection information.
               -> (backend -> m a)
@@ -137,6 +147,7 @@ open' ci@(MySQLConnectInfo innerCi _) logFunc = do
         , connInsertSql  = insertSql'
         , connInsertManySql = Nothing
         , connUpsertSql = Nothing
+        , connPutManySql = Just putManySql
         , connClose      = MySQL.close conn
         , connMigrateSql = migrate' innerCi
         , connBegin      = const $ begin' conn
@@ -215,7 +226,7 @@ withStmt' :: MonadIO m
           => MySQL.MySQLConn
           -> MySQL.Query
           -> [PersistValue]
-          -> Acquire (C.Source m [PersistValue])
+          -> Acquire (ConduitM () [PersistValue] m ())
 withStmt' conn query vals
   = fetchRows <$> mkAcquire createResult releaseResult
   where
@@ -271,7 +282,7 @@ instance MySQL.QueryParam P where
     -- FIXME: Too Ambigous, can not select precision without information about field
   render (P (PersistDbSpecific b))  = MySQL.putTextField $ MySQL.MySQLBytes b
   render (P (PersistObjectId _))    =
-    error "Refusing to map a PersistObjectId to a MySQL value"
+    error "Refusing to serialize a PersistObjectId to a MySQL value"
 
 -- | @Getter a@ is a function that converts an incoming "MySQLValue"
 -- into a data type @a@.
@@ -473,45 +484,51 @@ getColumns :: MySQL.ConnectInfo
                  )
 getColumns connectInfo getter def = do
     -- Find out ID column.
-    stmtIdClmn <- getter "SELECT COLUMN_NAME, \
-                                 \IS_NULLABLE, \
-                                 \DATA_TYPE, \
-                                 \COLUMN_DEFAULT \
-                          \FROM INFORMATION_SCHEMA.COLUMNS \
-                          \WHERE TABLE_SCHEMA = ? \
-                            \AND TABLE_NAME   = ? \
-                            \AND COLUMN_NAME  = ?"
-    inter1 <- with (stmtQuery stmtIdClmn vals) ($$ CL.consume)
-    ids <- runResourceT $ CL.sourceList inter1 $$ helperClmns -- avoid nested queries
+    stmtIdClmn <- getter $ T.concat
+      [ "SELECT COLUMN_NAME, "
+      ,   "IS_NULLABLE, "
+      ,   "DATA_TYPE, "
+      ,   "COLUMN_DEFAULT "
+      , "FROM INFORMATION_SCHEMA.COLUMNS "
+      , "WHERE TABLE_SCHEMA = ? "
+      ,   "AND TABLE_NAME   = ? "
+      ,   "AND COLUMN_NAME  = ?"
+      ]
+    inter1 <- with (stmtQuery stmtIdClmn vals) (\src -> runConduit $ src .| CL.consume)
+    ids <- runConduitRes $ CL.sourceList inter1 .| helperClmns -- avoid nested queries
 
     -- Find out all columns.
-    stmtClmns <- getter "SELECT COLUMN_NAME, \
-                               \IS_NULLABLE, \
-                               \DATA_TYPE, \
-                               \COLUMN_TYPE, \
-                               \CHARACTER_MAXIMUM_LENGTH, \
-                               \NUMERIC_PRECISION, \
-                               \NUMERIC_SCALE, \
-                               \COLUMN_DEFAULT \
-                        \FROM INFORMATION_SCHEMA.COLUMNS \
-                        \WHERE TABLE_SCHEMA = ? \
-                          \AND TABLE_NAME   = ? \
-                          \AND COLUMN_NAME <> ?"
-    inter2 <- with (stmtQuery stmtClmns vals) ($$ CL.consume)
-    cs <- runResourceT $ CL.sourceList inter2 $$ helperClmns -- avoid nested queries
+    stmtClmns <- getter $ T.concat
+      [ "SELECT COLUMN_NAME, "
+      ,   "IS_NULLABLE, "
+      ,   "DATA_TYPE, "
+      ,   "COLUMN_TYPE, "
+      ,   "CHARACTER_MAXIMUM_LENGTH, "
+      ,   "NUMERIC_PRECISION, "
+      ,   "NUMERIC_SCALE, "
+      ,   "COLUMN_DEFAULT "
+      , "FROM INFORMATION_SCHEMA.COLUMNS "
+      , "WHERE TABLE_SCHEMA = ? "
+      ,   "AND TABLE_NAME   = ? "
+      ,   "AND COLUMN_NAME <> ?"
+      ]
+    inter2 <- with (stmtQuery stmtClmns vals) (\src -> runConduitRes $ src .| CL.consume)
+    cs <- runConduitRes $ CL.sourceList inter2 .| helperClmns -- avoid nested queries
 
     -- Find out the constraints.
-    stmtCntrs <- getter "SELECT CONSTRAINT_NAME, \
-                               \COLUMN_NAME \
-                        \FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE \
-                        \WHERE TABLE_SCHEMA = ? \
-                          \AND TABLE_NAME   = ? \
-                          \AND COLUMN_NAME <> ? \
-                          \AND CONSTRAINT_NAME <> 'PRIMARY' \
-                          \AND REFERENCED_TABLE_SCHEMA IS NULL \
-                        \ORDER BY CONSTRAINT_NAME, \
-                                 \COLUMN_NAME"
-    us <- with (stmtQuery stmtCntrs vals) ($$ helperCntrs)
+    stmtCntrs <- getter $ T.concat
+      [ "SELECT CONSTRAINT_NAME, "
+      ,   "COLUMN_NAME "
+      , "FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE "
+      , "WHERE TABLE_SCHEMA = ? "
+      ,   "AND TABLE_NAME   = ? "
+      ,   "AND COLUMN_NAME <> ? "
+      ,   "AND CONSTRAINT_NAME <> 'PRIMARY' "
+      ,   "AND REFERENCED_TABLE_SCHEMA IS NULL "
+      , "ORDER BY CONSTRAINT_NAME, "
+      ,   "COLUMN_NAME"
+      ]
+    us <- with (stmtQuery stmtCntrs vals) (\src -> runConduitRes $ src .| helperCntrs)
 
     -- Return both
     return (ids, cs ++ us)
@@ -520,7 +537,7 @@ getColumns connectInfo getter def = do
            , PersistText $ unDBName $ entityDB def
            , PersistText $ unDBName $ fieldDB $ entityId def ]
 
-    helperClmns = CL.mapM getIt =$ CL.consume
+    helperClmns = CL.mapM getIt .| CL.consume
         where
           getIt = fmap (either Left (Right . Left)) .
                   liftIO .
@@ -564,21 +581,23 @@ getColumn connectInfo getter tname [ PersistText cname
                     _ -> fail $ "Invalid default column: " ++ show default'
 
       -- Foreign key (if any)
-      stmt <- lift $ getter "SELECT REFERENCED_TABLE_NAME, \
-                                   \CONSTRAINT_NAME, \
-                                   \ORDINAL_POSITION \
-                            \FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE \
-                            \WHERE TABLE_SCHEMA = ? \
-                              \AND TABLE_NAME   = ? \
-                              \AND COLUMN_NAME  = ? \
-                              \AND REFERENCED_TABLE_SCHEMA = ? \
-                            \ORDER BY CONSTRAINT_NAME, \
-                                     \COLUMN_NAME"
+      stmt <- lift . getter . T.concat $
+        [ "SELECT REFERENCED_TABLE_NAME, "
+        ,   "CONSTRAINT_NAME, "
+        ,   "ORDINAL_POSITION "
+        , "FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE "
+        , "WHERE TABLE_SCHEMA = ? "
+        ,   "AND TABLE_NAME   = ? "
+        ,   "AND COLUMN_NAME  = ? "
+        ,   "AND REFERENCED_TABLE_SCHEMA = ? "
+        , "ORDER BY CONSTRAINT_NAME, "
+        ,   "COLUMN_NAME"
+        ]
       let vars = [ PersistText $ T.decodeUtf8 $ MySQL.ciDatabase connectInfo
                  , PersistText $ unDBName $ tname
                  , PersistText cname
                  , PersistText $ T.decodeUtf8 $ MySQL.ciDatabase connectInfo ]
-      cntrs <- with (stmtQuery stmt vars) ($$ CL.consume)
+      cntrs <- liftIO $ with (stmtQuery stmt vars) (\src -> runConduit $ src .| CL.consume)
       ref <- case cntrs of
                [] -> return Nothing
                [[PersistText tab, PersistText ref, PersistInt64 pos]] ->
@@ -1081,59 +1100,87 @@ mockMigration mig = do
                              connLimitOffset = undefined,
                              connLogFunc = undefined,
                              connUpsertSql = undefined,
+                             connPutManySql = undefined,
                              connMaxParams = Nothing}
       result = runReaderT . runWriterT . runWriterT $ mig
   resp <- result sqlbackend
   mapM_ T.putStrLn $ map snd $ snd resp
 
--- | MySQL specific 'upsert'. This will prevent multiple queries, when one will
--- do.
+-- | MySQL specific 'upsert_'. This will prevent multiple queries, when one will
+-- do. The record will be inserted into the database. In the event that the
+-- record already exists in the database, the record will have the
+-- relevant updates performed.
 insertOnDuplicateKeyUpdate
-  :: (PersistEntity record, MonadIO m)
+  :: ( backend ~ PersistEntityBackend record
+     , PersistEntity record
+     , MonadIO m
+     , PersistStore backend
+     , BackendCompatible SqlBackend backend
+     )
   => record
   -> [Update record]
-  -> SqlPersistT m ()
+  -> ReaderT backend m ()
 insertOnDuplicateKeyUpdate record =
   insertManyOnDuplicateKeyUpdate [record] []
 
 -- | This type is used to determine how to update rows using MySQL's
--- @INSERT ON DUPLICATE KEY UPDATE@ functionality, exposed via
--- 'insertManyOnDuplicateKeyUpdate' in the library.
-data SomeField record where
+-- @INSERT ... ON DUPLICATE KEY UPDATE@ functionality, exposed via
+-- 'insertManyOnDuplicateKeyUpdate' in this library.
+--
+-- @since 3.0.0
+data HandleUpdateCollision record where
   -- | Copy the field directly from the record.
-  SomeField :: EntityField record typ -> SomeField record
+  CopyField :: EntityField record typ -> HandleUpdateCollision record
   -- | Only copy the field if it is not equal to the provided value.
-  -- @since 2.6.2
-  CopyUnlessEq :: PersistField typ => EntityField record typ -> typ -> SomeField record
+  CopyUnlessEq :: PersistField typ => EntityField record typ -> typ -> HandleUpdateCollision record
+
+-- | An alias for 'HandleUpdateCollision'. The type previously was only
+-- used to copy a single value, but was expanded to be handle more complex
+-- queries.
+--
+-- @since 2.6.2
+type SomeField = HandleUpdateCollision
+
+#if MIN_VERSION_base(4,8,0)
+pattern SomeField :: EntityField record typ -> SomeField record
+#endif
+pattern SomeField x = CopyField x
+{-# DEPRECATED SomeField "The type SomeField is deprecated. Use the type HandleUpdateCollision instead, and use the function copyField instead of the data constructor." #-}
 
 -- | Copy the field into the database only if the value in the
 -- corresponding record is non-@NULL@.
 --
 -- @since  2.6.2
-copyUnlessNull :: PersistField typ => EntityField record (Maybe typ) -> SomeField record
+copyUnlessNull :: PersistField typ => EntityField record (Maybe typ) -> HandleUpdateCollision record
 copyUnlessNull field = CopyUnlessEq field Nothing
 
 -- | Copy the field into the database only if the value in the
 -- corresponding record is non-empty, where "empty" means the Monoid
 -- definition for 'mempty'. Useful for 'Text', 'String', 'ByteString', etc.
 --
--- The resulting 'SomeField' type is useful for the
+-- The resulting 'HandleUpdateCollision' type is useful for the
 -- 'insertManyOnDuplicateKeyUpdate' function.
 --
 -- @since  2.6.2
-copyUnlessEmpty :: (Monoid.Monoid typ, PersistField typ) => EntityField record typ -> SomeField record
+copyUnlessEmpty :: (Monoid.Monoid typ, PersistField typ) => EntityField record typ -> HandleUpdateCollision record
 copyUnlessEmpty field = CopyUnlessEq field Monoid.mempty
 
 -- | Copy the field into the database only if the field is not equal to the
 -- provided value. This is useful to avoid copying weird nullary data into
 -- the database.
 --
--- The resulting 'SomeField' type is useful for the
+-- The resulting 'HandleUpdateCollision' type is useful for the
 -- 'insertManyOnDuplicateKeyUpdate' function.
 --
 -- @since  2.6.2
-copyUnlessEq :: PersistField typ => EntityField record typ -> typ -> SomeField record
+copyUnlessEq :: PersistField typ => EntityField record typ -> typ -> HandleUpdateCollision record
 copyUnlessEq = CopyUnlessEq
+
+-- | Copy the field directly from the record.
+--
+-- @since 3.0
+copyField :: PersistField typ => EntityField record typ -> HandleUpdateCollision record
+copyField = CopyField
 
 -- | Do a bulk insert on the given records in the first parameter. In the event
 -- that a key conflicts with a record currently in the database, the second and
@@ -1147,9 +1194,9 @@ copyUnlessEq = CopyUnlessEq
 -- the value that is provided. You can use this to increment a counter value.
 -- These updates only occur if the original record is present in the database.
 --
--- === __More details on 'SomeField' usage__
+-- === __More details on 'HandleUpdateCollision' usage__
 --
--- The @['SomeField']@ parameter allows you to specify which fields (and
+-- The @['HandleUpdateCollision']@ parameter allows you to specify which fields (and
 -- under which conditions) will be copied from the inserted rows. For
 -- a brief example, consider the following data model and existing data set:
 --
@@ -1224,31 +1271,36 @@ copyUnlessEq = CopyUnlessEq
 -- > | yes  | wow         |       |          |
 -- > +------+-------------+-------+----------+
 insertManyOnDuplicateKeyUpdate
-  :: ( PersistEntity record
-     , MonadIO m
-     )
-  => [record] -- ^ A list of the records you want to insert, or update
-  -> [SomeField record] -- ^ A list of updates to perform based on the record being inserted.
-  -> [Update record] -- ^ A list of the updates to apply that aren't dependent on the record being inserted.
-  -> SqlPersistT m ()
+    :: forall record backend m.
+    ( backend ~ PersistEntityBackend record
+    , BackendCompatible SqlBackend backend
+    , PersistEntity record
+    , MonadIO m
+    )
+    => [record] -- ^ A list of the records you want to insert, or update
+    -> [HandleUpdateCollision record] -- ^ A list of the fields you want to copy over.
+    -> [Update record] -- ^ A list of the updates to apply that aren't dependent on the record being inserted.
+    -> ReaderT backend m ()
 insertManyOnDuplicateKeyUpdate [] _ _ = return ()
 insertManyOnDuplicateKeyUpdate records fieldValues updates =
-  uncurry rawExecute $ mkBulkInsertQuery records fieldValues updates
+    uncurry rawExecute
+    $ mkBulkInsertQuery records fieldValues updates
 
--- | This creates the query for 'bulkInsertOnDuplicateKeyUpdate'. It will give
--- garbage results if you don't provide a list of either fields to copy or
--- fields to update.
+-- | This creates the query for 'bulkInsertOnDuplicateKeyUpdate'. If you
+-- provide an empty list of updates to perform, then it will generate
+-- a dummy/no-op update using the first field of the record. This avoids
+-- duplicate key exceptions.
 mkBulkInsertQuery
     :: PersistEntity record
     => [record] -- ^ A list of the records you want to insert, or update
-    -> [SomeField record] -- ^ A list of the fields you want to copy over.
+    -> [HandleUpdateCollision record] -- ^ A list of the fields you want to copy over.
     -> [Update record] -- ^ A list of the updates to apply that aren't dependent on the record being inserted.
     -> (Text, [PersistValue])
 mkBulkInsertQuery records fieldValues updates =
     (q, recordValues <> updsValues <> copyUnlessValues)
   where
     mfieldDef x = case x of
-        SomeField rec -> Right (fieldDbToText (persistFieldDef rec))
+        CopyField rec -> Right (fieldDbToText (persistFieldDef rec))
         CopyUnlessEq rec val -> Left (fieldDbToText (persistFieldDef rec), toPersistValue val)
     (fieldsToMaybeCopy, updateFieldNames) = partitionEithers $ map mfieldDef fieldValues
     fieldDbToText = T.pack . escapeDBName . fieldDB
@@ -1273,7 +1325,7 @@ mkBulkInsertQuery records fieldValues updates =
         ]
     condFieldSets = map (uncurry mkCondFieldSet) fieldsToMaybeCopy
     fieldSets = map (\n -> T.concat [n, "=VALUES(", n, ")"]) updateFieldNames
-    upds = map mkUpdateText updates
+    upds = map (mkUpdateText' (pack . escapeDBName) id) updates
     updsValues = map (\(Update _ val _) -> toPersistValue val) updates
     updateText = case fieldSets <> upds <> condFieldSets of
         [] -> T.concat [firstField, "=", firstField]
@@ -1290,27 +1342,26 @@ mkBulkInsertQuery records fieldValues updates =
         , updateText
         ]
 
--- | Vendored from @persistent@.
-mkUpdateText :: PersistEntity record => Update record -> Text
-mkUpdateText x =
-  case updateUpdate x of
-    Assign -> n <> "=?"
-    Add -> T.concat [n, "=", n, "+?"]
-    Subtract -> T.concat [n, "=", n, "-?"]
-    Multiply -> T.concat [n, "=", n, "*?"]
-    Divide -> T.concat [n, "=", n, "/?"]
-    BackendSpecificUpdate up ->
-      error . T.unpack $ "BackendSpecificUpdate " <> up <> " not supported"
+putManySql :: EntityDef -> Int -> Text
+putManySql entityDef' numRecords
+  | numRecords > 0 = q
+  | otherwise = error "putManySql: numRecords MUST be greater than 0!"
   where
-    n = T.pack . escapeDBName . fieldDB . updateFieldDef $ x
-
-commaSeparated :: [Text] -> Text
-commaSeparated = T.intercalate ", "
-
-parenWrapped :: Text -> Text
-parenWrapped t = T.concat ["(", t, ")"]
-
--- | Gets the 'FieldDef' for an 'Update'. Vendored from @persistent@.
-updateFieldDef :: PersistEntity v => Update v -> FieldDef
-updateFieldDef (Update f _ _) = persistFieldDef f
-updateFieldDef BackendUpdate {} = error "updateFieldDef did not expect BackendUpdate"
+    tableName = T.pack . escapeDBName . entityDB $ entityDef'
+    fieldDbToText = T.pack . escapeDBName . fieldDB
+    entityFieldNames = map fieldDbToText (entityFields entityDef')
+    recordPlaceholders= parenWrapped . commaSeparated
+                      $ map (const "?") (entityFields entityDef')
+    mkAssignment n = T.concat [n, "=VALUES(", n, ")"]
+    fieldSets = map (mkAssignment . fieldDbToText) (entityFields entityDef')
+    q = T.concat
+        [ "INSERT INTO "
+        , tableName
+        , " ("
+        , commaSeparated entityFieldNames
+        , ") "
+        , " VALUES "
+        , commaSeparated (replicate numRecords recordPlaceholders)
+        , " ON DUPLICATE KEY UPDATE "
+        , commaSeparated fieldSets
+        ]
