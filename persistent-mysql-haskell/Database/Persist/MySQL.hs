@@ -66,7 +66,6 @@ import System.Environment (getEnvironment)
 import Data.Acquire (Acquire, mkAcquire, with)
 
 import           Data.Conduit (ConduitM, (.|), runConduit, runConduitRes)
-import qualified Data.ByteString.Lazy as BS
 import qualified Data.Text.Lazy.Encoding as E
 import qualified Data.Text.Lazy as LT
 import qualified Data.Conduit.List as CL
@@ -217,13 +216,6 @@ insertSql' ent vals =
 execute' :: MySQL.MySQLConn -> MySQL.StmtID-> [PersistValue] -> IO Int64
 execute' conn stmtId params = (fromIntegral . MySQL.okAffectedRows) <$>
   MySQL.executeStmt conn stmtId (map toValue params)
-
--- | query' allows arguments to be empty.
-query'
-  :: MySQL.QueryParam p => MySQL.MySQLConn -> MySQL.Query -> [p]
-  -> IO ([MySQL.ColumnDef], Streams.InputStream [MySQL.MySQLValue])
-query' conn qry [] = MySQL.query_ conn qry
-query' conn qry ps = MySQL.query  conn qry ps
 
 -- | Execute an statement that does return results.  The results
 -- unlike @persistent-mysql@, we actually _stream_ results.
