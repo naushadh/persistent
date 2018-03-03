@@ -66,7 +66,8 @@ import System.Environment (getEnvironment)
 import Data.Acquire (Acquire, mkAcquire, with)
 
 import           Data.Conduit (ConduitM, (.|), runConduit, runConduitRes)
-import qualified Data.ByteString.Lazy as BS
+import qualified Data.Text.Lazy.Encoding as E
+import qualified Data.Text.Lazy as LT
 import qualified Data.Conduit.List as CL
 import qualified Data.Map as Map
 import qualified Data.Text as T
@@ -179,16 +180,19 @@ commit' conn = void $ MySQL.execute_ conn "COMMIT"
 rollback' :: MySQL.MySQLConn -> IO ()
 rollback' conn = void $ MySQL.execute_ conn "ROLLBACK"
 
+textToQuery :: Text -> MySQL.Query
+textToQuery = MySQL.Query . E.encodeUtf8 . LT.fromStrict
+
 -- | Prepare a query.  We don't support prepared statements, but
 -- we'll do some client-side preprocessing here.
 prepare' :: MySQL.MySQLConn -> Text -> IO Statement
 prepare' conn sql = do
-    let query = MySQL.Query . BS.fromStrict . T.encodeUtf8 $ sql
+    stmtId <- MySQL.prepareStmt conn $ textToQuery sql
     return Statement
-        { stmtFinalize = return ()
-        , stmtReset    = return ()
-        , stmtExecute  = execute' conn query
-        , stmtQuery    = withStmt' conn query
+        { stmtFinalize = MySQL.closeStmt conn stmtId
+        , stmtReset    = MySQL.resetStmt conn stmtId
+        , stmtExecute  = execute' conn stmtId
+        , stmtQuery    = withStmt' conn stmtId
         }
 
 
@@ -209,28 +213,21 @@ insertSql' ent vals =
        Nothing -> ISRInsertGet sql "SELECT LAST_INSERT_ID()"
 
 -- | Execute an statement that doesn't return any results.
-execute' :: MySQL.MySQLConn -> MySQL.Query -> [PersistValue] -> IO Int64
-execute' conn query vals
-  = fmap (fromIntegral . MySQL.okAffectedRows) $ MySQL.execute conn query (map P vals)
+execute' :: MySQL.MySQLConn -> MySQL.StmtID-> [PersistValue] -> IO Int64
+execute' conn stmtId params = (fromIntegral . MySQL.okAffectedRows) <$>
+  MySQL.executeStmt conn stmtId (map toValue params)
 
--- | query' allows arguments to be empty.
-query'
-  :: MySQL.QueryParam p => MySQL.MySQLConn -> MySQL.Query -> [p]
-  -> IO ([MySQL.ColumnDef], Streams.InputStream [MySQL.MySQLValue])
-query' conn qry [] = MySQL.query_ conn qry
-query' conn qry ps = MySQL.query  conn qry ps
-
--- | Execute an statement that does return results.
+-- | Execute an statement that does return results.  The results
 -- unlike @persistent-mysql@, we actually _stream_ results.
 withStmt' :: MonadIO m
           => MySQL.MySQLConn
-          -> MySQL.Query
+          -> MySQL.StmtID
           -> [PersistValue]
           -> Acquire (ConduitM () [PersistValue] m ())
-withStmt' conn query vals
-  = fetchRows <$> mkAcquire createResult releaseResult
+withStmt' conn stmtId params
+    = fetchRows <$> mkAcquire createResult releaseResult
   where
-    createResult = query' conn query (map P vals)
+    createResult =  MySQL.queryStmt conn stmtId (map toValue params)
     releaseResult (_, is) = Streams.skipToEof is
     fetchRows (fields, is) = CL.unfoldM getVal is
       where
@@ -242,6 +239,7 @@ withStmt' conn query vals
             case v of
               (Just r)  -> pure $ Just (convert r, s)
               _         -> pure Nothing
+
 
 -- | Encode a Haskell bool into a MySQLValue
 encodeBool :: Bool -> MySQL.MySQLValue
@@ -261,28 +259,31 @@ decodeInteger = PersistInt64 . fromIntegral
 decodeDouble :: Real a => a -> PersistValue
 decodeDouble = PersistDouble . realToFrac
 
+toValue:: PersistValue -> MySQL.MySQLValue
+toValue (PersistText t)        = MySQL.MySQLText t
+toValue (PersistByteString b)  =  MySQL.MySQLBytes b
+toValue (PersistInt64 i)       =  MySQL.MySQLInt64 i
+toValue (PersistDouble d)      =  MySQL.MySQLDouble d
+toValue (PersistBool b)        =  encodeBool b
+toValue (PersistDay d)         =  MySQL.MySQLDate d
+toValue (PersistTimeOfDay t)   =  MySQL.MySQLTime 0 t
+toValue (PersistUTCTime t)     =  MySQL.MySQLTimeStamp $ Time.utcToLocalTime Time.utc t
+toValue (PersistNull)          =  MySQL.MySQLNull
+toValue (PersistList l)        = MySQL.MySQLText $ listToJSON l
+toValue (PersistMap m)         = MySQL.MySQLText $ mapToJSON m
+toValue (PersistRational r)    =
+   MySQL.MySQLDecimal $ read $ show (fromRational r :: Pico)
+  -- FIXME: Too Ambigous, can not select precision without information about field
+toValue (PersistDbSpecific b)  =  MySQL.MySQLBytes b
+toValue (PersistObjectId _)    =
+    error "Refusing to map a PersistObjectId to a MySQL value"
+
 -- | @newtype@ around 'PersistValue' that supports the
 -- 'MySQL.Param' type class.
 newtype P = P PersistValue
 
 instance MySQL.QueryParam P where
-  render (P (PersistText t))        = MySQL.putTextField $ MySQL.MySQLText t
-  render (P (PersistByteString b))  = MySQL.putTextField $ MySQL.MySQLBytes b
-  render (P (PersistInt64 i))       = MySQL.putTextField $ MySQL.MySQLInt64 i
-  render (P (PersistDouble d))      = MySQL.putTextField $ MySQL.MySQLDouble d
-  render (P (PersistBool b))        = MySQL.putTextField $ encodeBool b
-  render (P (PersistDay d))         = MySQL.putTextField $ MySQL.MySQLDate d
-  render (P (PersistTimeOfDay t))   = MySQL.putTextField $ MySQL.MySQLTime 0 t
-  render (P (PersistUTCTime t))     = MySQL.putTextField . MySQL.MySQLTimeStamp $ Time.utcToLocalTime Time.utc t
-  render (P (PersistNull))          = MySQL.putTextField $ MySQL.MySQLNull
-  render (P (PersistList l))        = MySQL.putTextField . MySQL.MySQLText $ listToJSON l
-  render (P (PersistMap m))         = MySQL.putTextField . MySQL.MySQLText $ mapToJSON m
-  render (P (PersistRational r))    =
-    MySQL.putTextField $ MySQL.MySQLDecimal $ read $ show (fromRational r :: Pico)
-    -- FIXME: Too Ambigous, can not select precision without information about field
-  render (P (PersistDbSpecific b))  = MySQL.putTextField $ MySQL.MySQLBytes b
-  render (P (PersistObjectId _))    =
-    error "Refusing to serialize a PersistObjectId to a MySQL value"
+  render (P v) = MySQL.putTextField $ toValue v
 
 -- | @Getter a@ is a function that converts an incoming "MySQLValue"
 -- into a data type @a@.
@@ -946,7 +947,7 @@ mkMySQLConnectInfo
 mkMySQLConnectInfo host user pass db
   = MySQLConnectInfo innerCi Nothing
   where
-    innerCi = MySQL.defaultConnectInfo {
+    innerCi = MySQL.defaultConnectInfoMB4 {
         MySQL.ciHost     = host
       , MySQL.ciUser     = user
       , MySQL.ciPassword = pass
@@ -986,7 +987,7 @@ instance FromJSON MySQLConf where
         user     <- o .: "user"
         password <- o .: "password"
         pool     <- o .: "poolsize"
-        let ci = MySQL.defaultConnectInfo
+        let ci = MySQL.defaultConnectInfoMB4
                    { MySQL.ciHost     = host
                    , MySQL.ciPort     = read port
                    , MySQL.ciUser     = BSC.pack user
