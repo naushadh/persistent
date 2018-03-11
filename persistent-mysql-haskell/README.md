@@ -77,6 +77,37 @@ that ships with `mysql-haskell`.
 
 Aside from connection configuration, persistent-mysql-haskell is functionally on par with persistent-mysql (as of writing this). This can be seen by [comparing persistent-test between this fork and upstream](https://github.com/yesodweb/persistent/compare/master...naushadh:persistent-mysql-haskell#diff-028f5df7b2b9c5c8b0fa670fc8c69bff).
 
+#### Yesod
+
+In order to use `persistent-mysql-haskell` with `yesod` you have to modify `Settings.hs`:
+
+  ```diff
+  - import Database.Persist.MySQL     (MySQLConf (..))
+  + import Database.Persist.MySQL     (MySQLConf)
+  ```
+
+  ```diff
+  - import qualified Database.MySQL.Base as MySQL
+  ```
+
+  ```diff
+  -         fromYamlAppDatabaseConf   <- o .: "database"
+  +         appDatabaseConf           <- o .: "database"
+  ```
+
+  ```diff
+  -         -- This code enables MySQL's strict mode, without which MySQL will truncate data.
+  -         -- See https://github.com/yesodweb/persistent/wiki/Database-Configuration#strict-mode for details
+  -         -- If you choose to keep strict mode enabled, it's recommended that you enable it in your my.cnf file so that it's also enabled for your MySQL console sessions.
+  -         -- (If you enable it in your my.cnf file, you can delete this code).
+  -         let appDatabaseConf = fromYamlAppDatabaseConf { myConnInfo = (myConnInfo fromYamlAppDatabaseConf) {
+  -                 MySQL.connectOptions =
+  -                   ( MySQL.connectOptions (myConnInfo fromYamlAppDatabaseConf)) ++ [MySQL.InitCommand "SET SESSION sql_mode = 'STRICT_ALL_TABLES';\0"]
+  -               }
+  -             }
+  -
+  ```
+
 ### FAQs
 
 #### Why isn't this part of the main/upstream persistent repo?
