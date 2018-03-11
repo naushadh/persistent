@@ -920,9 +920,13 @@ data MySQLConf = MySQLConf
     Int
     deriving Show
 
+-- | Extract connection configs from 'MySQLConf'
+-- @since 0.4.1
 myConnInfo :: MySQLConf -> MySQLConnectInfo
 myConnInfo (MySQLConf c _) = c
 
+-- | Extract connection pool size from 'MySQLConf'
+-- @since 0.4.1
 myPoolSize :: MySQLConf -> Int
 myPoolSize (MySQLConf _ p) = p
 
