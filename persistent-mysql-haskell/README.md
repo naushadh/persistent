@@ -83,16 +83,11 @@ In order to use `persistent-mysql-haskell` with `yesod` you have to modify `Sett
 
   ```diff
   - import Database.Persist.MySQL     (MySQLConf (..))
-  + import Database.Persist.MySQL     (MySQLConf)
+  + import Database.Persist.MySQL     (MySQLConf, mkMySQLConf, myConnInfo, myPoolSize, setMySQLConnectInfoCharset)
   ```
 
   ```diff
   - import qualified Database.MySQL.Base as MySQL
-  ```
-
-  ```diff
-  -         fromYamlAppDatabaseConf   <- o .: "database"
-  +         appDatabaseConf           <- o .: "database"
   ```
 
   ```diff
@@ -105,7 +100,46 @@ In order to use `persistent-mysql-haskell` with `yesod` you have to modify `Sett
   -                   ( MySQL.connectOptions (myConnInfo fromYamlAppDatabaseConf)) ++ [MySQL.InitCommand "SET SESSION sql_mode = 'STRICT_ALL_TABLES';\0"]
   -               }
   -             }
-  -
+  ```
+
+And in `Application.hs`:
+
+  ```diff
+  - import qualified Database.MySQL.Base as MySQL
+  ```
+
+  ```diff
+    import Network.Wai.Handler.Warp             (Settings, defaultSettings,
+                                                 defaultShouldDisplayException,
+                                                 runSettings, setHost,
+  -                                              setFork, setOnOpen, setOnClose,
+  +                                              setFork,
+                                                 setOnException, setPort, getPort)
+  ```
+
+  ```diff
+  -     -- See http://www.yesodweb.com/blog/2016/11/use-mysql-safely-in-yesod
+  -     MySQL.initLibrary
+  ```
+
+  ```diff
+  -     $ setOnOpen (const $ MySQL.initThread >> return True)
+  -     $ setOnClose (const MySQL.endThread)
+  ```
+
+Optionally you may enable the MYSQL strict mode (in each transaction)
+by modifying `Foundation.hs` (or editing the `my.cnf` server configuration):
+
+  ```diff
+  - import Database.Persist.Sql (ConnectionPool, runSqlPool)
+  + import Database.Persist.Sql (ConnectionPool, rawExecute, runSqlPool)
+  ```
+
+  ```diff
+  -         runSqlPool action $ appConnPool master
+  +         runSqlPool
+  +           (rawExecute "SET SESSION sql_mode = 'STRICT_ALL_TABLES'" [] >> action)
+  +           (appConnPool master)
   ```
 
 ### FAQs
