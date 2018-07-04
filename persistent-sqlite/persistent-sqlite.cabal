@@ -1,5 +1,5 @@
 name:            persistent-sqlite
-version:         2.8.1
+version:         2.9.1.0
 license:         MIT
 license-file:    LICENSE
 author:          Michael Snoyman <michael@snoyman.com>
@@ -23,12 +23,24 @@ flag use-pkgconfig
 flag build-sanity-exe
   description: Build a sanity check test executable
   default: False
+flag full-text-search
+  description: Enable full-text search in the vendored SQLite library; has no effect if a system SQLite library is used.
+  default: True
+flag uri-filenames
+  description: Enable URI filenames in the vendored SQLite library; has no effect if a system SQLite library is used.
+  default: True
+flag have-usleep
+  description: Enable usleep in the vendored SQLite library; has no effect if a system SQLite library is used.
+  default: True
+flag json1
+  description: Enable json1 in the vendored SQLite library; has no effect if a system SQLite library is used.
+  default: True
 
 library
     build-depends:   base                    >= 4.8         && < 5
                    , bytestring              >= 0.9.1
                    , transformers            >= 0.2.1
-                   , persistent              >= 2.8.1       && < 3
+                   , persistent              >= 2.9.1       && < 3
                    , unliftio-core
                    , containers              >= 0.2
                    , text                    >= 0.7
@@ -53,6 +65,17 @@ library
         c-sources:   cbits/sqlite3.c
         include-dirs: cbits
         cc-options:  -fPIC -std=c99
+    if flag(full-text-search)
+      cc-options: -DSQLITE_ENABLE_FTS3
+                  -DSQLITE_ENABLE_FTS3_PARENTHESIS
+                  -DSQLITE_ENABLE_FTS4
+                  -DSQLITE_ENABLE_FTS5
+    if flag(uri-filenames)
+      cc-options: -DSQLITE_USE_URI
+    if flag(have-usleep)
+       cc-options: -DHAVE_USLEEP
+    if flag(json1)
+      cc-options: -DSQLITE_ENABLE_JSON1
 
     c-sources: cbits/config.c
 

@@ -1,3 +1,18 @@
+## 2.9.1
+
+* Added support for SQL isolation levels to via SqlBackend. [#812]
+
+## 2.8.2
+
+Added module `Database.Persist.Postgres.JSON` [#793](https://github.com/yesodweb/persistent/pull/793)
+
+* `PersistField` and `PersistFieldSql` instances for `Data.Aeson.Value`
+* Filter operators `(@>.)` and `(<@.)` to filter on JSON values
+
+## 2.8.1.1
+
+* Added a more detailed error message when a `numeric` column's scale and precision can't be parsed. [#781](https://github.com/yesodweb/persistent/pull/781)
+
 ## 2.8.1
 
 * Implemented `connPutManySql` to utilize batched `putMany`. [#770](https://github.com/yesodweb/persistent/pull/770)
