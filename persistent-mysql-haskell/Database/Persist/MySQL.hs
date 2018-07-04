@@ -76,7 +76,7 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 
 import Database.Persist.Sql
-import Database.Persist.Sql.Types.Internal (mkPersistBackend)
+import Database.Persist.Sql.Types.Internal (mkPersistBackend, makeIsolationLevelStatement)
 import Database.Persist.Sql.Util (commaSeparated, mkUpdateText', parenWrapped)
 import Database.Persist.MySQLConnectInfoShowInstance ()
 import Data.Int (Int64)
@@ -91,6 +91,7 @@ import qualified Data.ByteString.Char8  as BSC
 import qualified Network.Socket         as NetworkSocket
 import qualified Data.Word              as Word
 import Control.Monad.IO.Unlift (MonadUnliftIO)
+import           Data.String (fromString)
 
 import Prelude
 -- | Create a MySQL connection pool and run the given action.
@@ -171,8 +172,11 @@ autocommit' :: MySQL.MySQLConn -> Bool -> IO ()
 autocommit' conn bool = void $ MySQL.execute conn "SET autocommit=?" [encodeBool bool]
 
 -- | Start a transaction.
-begin' :: MySQL.MySQLConn -> IO ()
-begin' conn = void $ MySQL.execute_ conn "BEGIN"
+begin' :: MySQL.MySQLConn -> Maybe IsolationLevel -> IO ()
+begin' conn mIso
+  = void
+  $ mapM_ (MySQL.execute_ conn . fromString . makeIsolationLevelStatement) mIso
+  >> MySQL.execute_ conn "BEGIN"
 
 -- | Commit the current transaction.
 commit' :: MySQL.MySQLConn -> IO ()

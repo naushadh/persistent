@@ -1,3 +1,7 @@
+## 0.5.0
+
+- Port [#812](https://github.com/yesodweb/persistent/pull/812) from `persistent-mysql`: Add support for SQL isolation levels
+
 ## 0.4.1
 
 - Fix [#2](https://github.com/naushadh/persistent/issues/2): Better compatibility with `yesod` scaffold.
