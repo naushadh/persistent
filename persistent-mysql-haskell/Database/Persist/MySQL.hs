@@ -39,6 +39,9 @@ module Database.Persist.MySQL
   , MySQLTLS.TrustedCAStore(..)
   , MySQLTLS.makeClientParams
   , MySQLTLS.makeClientParams'
+  -- * persistent-mysql compatibility
+  , myConnInfo
+  , myPoolSize
 ) where
 
 import Control.Arrow
@@ -917,8 +920,15 @@ data MySQLConf = MySQLConf
     Int
     deriving Show
 
+-- | Extract connection configs from 'MySQLConf'
+-- @since 0.4.1
 myConnInfo :: MySQLConf -> MySQLConnectInfo
 myConnInfo (MySQLConf c _) = c
+
+-- | Extract connection pool size from 'MySQLConf'
+-- @since 0.4.1
+myPoolSize :: MySQLConf -> Int
+myPoolSize (MySQLConf _ p) = p
 
 setMyConnInfo :: MySQLConnectInfo -> MySQLConf -> MySQLConf
 setMyConnInfo c (MySQLConf _ p) = MySQLConf c p
@@ -988,7 +998,7 @@ instance FromJSON MySQLConf where
         pool     <- o .: "poolsize"
         let ci = MySQL.defaultConnectInfo
                    { MySQL.ciHost     = host
-                   , MySQL.ciPort     = read port
+                   , MySQL.ciPort     = fromIntegral (port :: Word)
                    , MySQL.ciUser     = BSC.pack user
                    , MySQL.ciPassword = BSC.pack password
                    , MySQL.ciDatabase = BSC.pack database

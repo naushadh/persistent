@@ -77,6 +77,71 @@ that ships with `mysql-haskell`.
 
 Aside from connection configuration, persistent-mysql-haskell is functionally on par with persistent-mysql (as of writing this). This can be seen by [comparing persistent-test between this fork and upstream](https://github.com/yesodweb/persistent/compare/master...naushadh:persistent-mysql-haskell#diff-028f5df7b2b9c5c8b0fa670fc8c69bff).
 
+#### Yesod
+
+In order to use `persistent-mysql-haskell` with `yesod` you have to modify `Settings.hs`:
+
+  ```diff
+  - import Database.Persist.MySQL     (MySQLConf (..))
+  + import Database.Persist.MySQL     (MySQLConf, mkMySQLConf, myConnInfo, myPoolSize, setMySQLConnectInfoCharset)
+  ```
+
+  ```diff
+  - import qualified Database.MySQL.Base as MySQL
+  ```
+
+  ```diff
+  -         -- This code enables MySQL's strict mode, without which MySQL will truncate data.
+  -         -- See https://github.com/yesodweb/persistent/wiki/Database-Configuration#strict-mode for details
+  -         -- If you choose to keep strict mode enabled, it's recommended that you enable it in your my.cnf file so that it's also enabled for your MySQL console sessions.
+  -         -- (If you enable it in your my.cnf file, you can delete this code).
+  -         let appDatabaseConf = fromYamlAppDatabaseConf { myConnInfo = (myConnInfo fromYamlAppDatabaseConf) {
+  -                 MySQL.connectOptions =
+  -                   ( MySQL.connectOptions (myConnInfo fromYamlAppDatabaseConf)) ++ [MySQL.InitCommand "SET SESSION sql_mode = 'STRICT_ALL_TABLES';\0"]
+  -               }
+  -             }
+  ```
+
+And in `Application.hs`:
+
+  ```diff
+  - import qualified Database.MySQL.Base as MySQL
+  ```
+
+  ```diff
+    import Network.Wai.Handler.Warp             (Settings, defaultSettings,
+                                                 defaultShouldDisplayException,
+                                                 runSettings, setHost,
+  -                                              setFork, setOnOpen, setOnClose,
+  +                                              setFork,
+                                                 setOnException, setPort, getPort)
+  ```
+
+  ```diff
+  -     -- See http://www.yesodweb.com/blog/2016/11/use-mysql-safely-in-yesod
+  -     MySQL.initLibrary
+  ```
+
+  ```diff
+  -     $ setOnOpen (const $ MySQL.initThread >> return True)
+  -     $ setOnClose (const MySQL.endThread)
+  ```
+
+Optionally you may enable the MYSQL strict mode (in each transaction)
+by modifying `Foundation.hs` (or editing the `my.cnf` server configuration):
+
+  ```diff
+  - import Database.Persist.Sql (ConnectionPool, runSqlPool)
+  + import Database.Persist.Sql (ConnectionPool, rawExecute, runSqlPool)
+  ```
+
+  ```diff
+  -         runSqlPool action $ appConnPool master
+  +         runSqlPool
+  +           (rawExecute "SET SESSION sql_mode = 'STRICT_ALL_TABLES'" [] >> action)
+  +           (appConnPool master)
+  ```
+
 ### FAQs
 
 #### Why isn't this part of the main/upstream persistent repo?

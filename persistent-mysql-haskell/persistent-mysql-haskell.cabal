@@ -1,5 +1,5 @@
 name:            persistent-mysql-haskell
-version:         0.4.0
+version:         0.4.1
 license:         MIT
 license-file:    LICENSE
 author:          Naushadh <naushadh@protonmail.com>, Felipe Lessa <felipe.lessa@gmail.com>, Michael Snoyman

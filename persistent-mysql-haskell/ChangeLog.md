@@ -1,3 +1,7 @@
+## 0.4.1
+
+- Fix [#2](https://github.com/naushadh/persistent/issues/2): Better compatibility with `yesod` scaffold.
+
 ## 0.4.0
 
 - Port [#770](https://github.com/yesodweb/persistent/pull/770) from `persistent-mysql`: Performance enhancements for bulk writes.
