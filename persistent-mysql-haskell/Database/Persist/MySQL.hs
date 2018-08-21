@@ -251,11 +251,6 @@ encodeBool :: Bool -> MySQL.MySQLValue
 encodeBool True = MySQL.MySQLInt8U 1
 encodeBool False = MySQL.MySQLInt8U 0
 
--- | Decode a Numeric value into a PersistBool
-decodeBool :: (Eq a, Num a) => a -> PersistValue
-decodeBool 0 = PersistBool False
-decodeBool _ = PersistBool True
-
 -- | Decode a whole number into a PersistInt64
 decodeInteger :: Integral a => a -> PersistValue
 decodeInteger = PersistInt64 . fromIntegral
