@@ -294,14 +294,8 @@ type Getter a = MySQL.MySQLValue -> a
 -- | Get the corresponding @'Getter' 'PersistValue'@ depending on
 -- the type of the column.
 getGetter :: MySQL.ColumnDef -> Getter PersistValue
-getGetter field = case (MySQL.columnLength field) of
-  1 -> goBool
-  _ -> go
+getGetter _field = go
   where
-    -- Bool
-    goBool (MySQL.MySQLInt8U v) = decodeBool v
-    goBool (MySQL.MySQLInt8  v) = decodeBool v
-    goBool _                    = PersistBool False
     -- Int64
     go (MySQL.MySQLInt8U  v) = decodeInteger v
     go (MySQL.MySQLInt8   v) = decodeInteger v
