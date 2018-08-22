@@ -1,3 +1,6 @@
+## 0.4.2
+- [#7](https://github.com/naushadh/persistent/pull/7) Fix boolean conversion bug.
+
 ## 0.4.1
 
 - Fix [#2](https://github.com/naushadh/persistent/issues/2): Better compatibility with `yesod` scaffold.
