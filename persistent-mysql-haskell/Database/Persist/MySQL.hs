@@ -77,7 +77,7 @@ import qualified Data.Text.Encoding as T
 
 import Database.Persist.Sql
 import Database.Persist.Sql.Types.Internal (mkPersistBackend, makeIsolationLevelStatement)
-import Database.Persist.Sql.Util (commaSeparated, mkUpdateText', parenWrapped)
+import qualified Database.Persist.Sql.Util as Util
 import Database.Persist.MySQLConnectInfoShowInstance ()
 import Data.Int (Int64)
 
@@ -165,6 +165,7 @@ open' ci@(MySQLConnectInfo innerCi _) logFunc = do
         , connLimitOffset = decorateSQLWithLimitOffset "LIMIT 18446744073709551615"
         , connLogFunc    = logFunc
         , connMaxParams = Nothing
+        , connRepsertManySql = Just repsertManySql
         }
 
 -- | Set autocommit setting
@@ -896,6 +897,8 @@ refName (DBName table) (DBName column) =
 
 ----------------------------------------------------------------------
 
+escape :: DBName -> Text
+escape = T.pack . escapeDBName
 
 -- | Escape a database name to be included on a query.
 escapeDBName :: DBName -> String
@@ -1104,7 +1107,9 @@ mockMigration mig = do
                              connLogFunc = undefined,
                              connUpsertSql = undefined,
                              connPutManySql = undefined,
-                             connMaxParams = Nothing}
+                             connMaxParams = Nothing,
+                             connRepsertManySql = Nothing
+                             }
       result = runReaderT . runWriterT . runWriterT $ mig
   resp <- result sqlbackend
   mapM_ T.putStrLn $ map snd $ snd resp
@@ -1315,7 +1320,7 @@ mkBulkInsertQuery records fieldValues updates =
     tableName = T.pack . escapeDBName . entityDB $ entityDef'
     copyUnlessValues = map snd fieldsToMaybeCopy
     recordValues = concatMap (map toPersistValue . toPersistFields) records
-    recordPlaceholders = commaSeparated $ map (parenWrapped . commaSeparated . map (const "?") . toPersistFields) records
+    recordPlaceholders = Util.commaSeparated $ map (Util.parenWrapped . Util.commaSeparated . map (const "?") . toPersistFields) records
     mkCondFieldSet n _ = T.concat
         [ n
         , "=COALESCE("
@@ -1328,16 +1333,16 @@ mkBulkInsertQuery records fieldValues updates =
         ]
     condFieldSets = map (uncurry mkCondFieldSet) fieldsToMaybeCopy
     fieldSets = map (\n -> T.concat [n, "=VALUES(", n, ")"]) updateFieldNames
-    upds = map (mkUpdateText' (pack . escapeDBName) id) updates
+    upds = map (Util.mkUpdateText' (pack . escapeDBName) id) updates
     updsValues = map (\(Update _ val _) -> toPersistValue val) updates
     updateText = case fieldSets <> upds <> condFieldSets of
         [] -> T.concat [firstField, "=", firstField]
-        xs -> commaSeparated xs
+        xs -> Util.commaSeparated xs
     q = T.concat
         [ "INSERT INTO "
         , tableName
         , " ("
-        , commaSeparated entityFieldNames
+        , Util.commaSeparated entityFieldNames
         , ") "
         , " VALUES "
         , recordPlaceholders
@@ -1346,25 +1351,33 @@ mkBulkInsertQuery records fieldValues updates =
         ]
 
 putManySql :: EntityDef -> Int -> Text
-putManySql entityDef' numRecords
-  | numRecords > 0 = q
-  | otherwise = error "putManySql: numRecords MUST be greater than 0!"
+putManySql ent n = putManySql' fields ent n
   where
-    tableName = T.pack . escapeDBName . entityDB $ entityDef'
-    fieldDbToText = T.pack . escapeDBName . fieldDB
-    entityFieldNames = map fieldDbToText (entityFields entityDef')
-    recordPlaceholders= parenWrapped . commaSeparated
-                      $ map (const "?") (entityFields entityDef')
-    mkAssignment n = T.concat [n, "=VALUES(", n, ")"]
-    fieldSets = map (mkAssignment . fieldDbToText) (entityFields entityDef')
+    fields = entityFields ent
+
+repsertManySql :: EntityDef -> Int -> Text
+repsertManySql ent n = putManySql' fields ent n
+  where
+    fields = keyAndEntityFields ent
+
+putManySql' :: [FieldDef] -> EntityDef -> Int -> Text
+putManySql' fields ent n = q
+  where
+    fieldDbToText = escape . fieldDB
+    mkAssignment f = T.concat [f, "=VALUES(", f, ")"]
+
+    table = escape . entityDB $ ent
+    columns = Util.commaSeparated $ map fieldDbToText fields
+    placeholders = map (const "?") fields
+    updates = map (mkAssignment . fieldDbToText) fields
+
     q = T.concat
         [ "INSERT INTO "
-        , tableName
-        , " ("
-        , commaSeparated entityFieldNames
-        , ") "
+        , table
+        , Util.parenWrapped columns
         , " VALUES "
-        , commaSeparated (replicate numRecords recordPlaceholders)
+        , Util.commaSeparated . replicate n
+            . Util.parenWrapped . Util.commaSeparated $ placeholders
         , " ON DUPLICATE KEY UPDATE "
-        , commaSeparated fieldSets
+        , Util.commaSeparated updates
         ]

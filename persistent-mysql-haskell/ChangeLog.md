@@ -3,6 +3,7 @@
 ## 0.5.0
 
 - Port [#812](https://github.com/yesodweb/persistent/pull/812) from `persistent-mysql`: Add support for SQL isolation levels
+- Port [#833](https://github.com/yesodweb/persistent/pull/833) from `persistent-mysql`: `repsertMany` now matches `mapM_ (uncurry repsert)` and is atomic.
 
 ## 0.4.2
 
