@@ -10,8 +10,6 @@ module Database.Persist.Sql
     , rawExecute
     , rawExecuteCount
     , rawSql
-    , sqlQQ
-    , executeQQ
     , deleteWhereCount
     , updateWhereCount
     , transactionSave
@@ -31,7 +29,6 @@ import Database.Persist.Sql.Types.Internal (IsolationLevel (..))
 import Database.Persist.Sql.Class
 import Database.Persist.Sql.Run hiding (withResourceTimeout)
 import Database.Persist.Sql.Raw
-import Database.Persist.Sql.Raw.QQ
 import Database.Persist.Sql.Migration
 import Database.Persist.Sql.Internal
 
@@ -52,7 +49,7 @@ transactionSave = do
 
 -- | Commit the current transaction and begin a new one with the specified isolation level.
 --
--- @since 2.9.1
+-- @since 2.9.0
 transactionSaveWithIsolation :: MonadIO m => IsolationLevel -> ReaderT SqlBackend m ()
 transactionSaveWithIsolation isolation = do
     conn <- ask
@@ -70,7 +67,7 @@ transactionUndo = do
 
 -- | Roll back the current transaction and begin a new one with the specified isolation level.
 --
--- @since 2.9.1
+-- @since 2.9.0
 transactionUndoWithIsolation :: MonadIO m => IsolationLevel -> ReaderT SqlBackend m ()
 transactionUndoWithIsolation isolation = do
     conn <- ask
