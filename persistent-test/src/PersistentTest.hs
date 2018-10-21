@@ -1,35 +1,45 @@
 {-# OPTIONS_GHC -fno-warn-unused-binds -fno-warn-orphans #-}
+{-# LANGUAGE CPP #-}
+{-# LANGUAGE EmptyDataDecls #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE UndecidableInstances #-} -- FIXME
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE NoMonomorphismRestriction #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE NoMonomorphismRestriction #-}
-{-# LANGUAGE CPP #-}
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE GADTs #-}
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE StandaloneDeriving #-}
-{-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE EmptyDataDecls #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE CPP #-}
 module PersistentTest where
 
-import Test.HUnit hiding (Test)
+import Control.Monad.IO.Class
 import Control.Monad.Trans.Resource (runResourceT)
+import Data.Aeson
+import Data.Conduit
+import qualified Data.Conduit.List as CL
+import Data.Function (on)
+import Data.Functor.Identity
+import Data.Functor.Constant
+import Data.Maybe (fromJust)
+import qualified Data.HashMap.Lazy as M
+import qualified Data.Map as Map
+import Test.HUnit hiding (Test)
 import Test.Hspec.Expectations ()
 import Test.Hspec.QuickCheck(prop)
 import UnliftIO (MonadUnliftIO, catch)
+import Web.PathPieces (PathPiece (..))
 
 import Database.Persist
 
 #ifdef WITH_NOSQL
-#ifdef WITH_MONGODB
+#  ifdef WITH_MONGODB
 import qualified Database.MongoDB as MongoDB
 import Database.Persist.MongoDB (toInsertDoc, docToEntityThrow, collectionName, recordToDocument)
-#endif
+#  endif
 
 #else
 
@@ -45,19 +55,7 @@ import Database.Persist.MySQL()
 
 #endif
 
-import Control.Monad.IO.Class
-
-import Web.PathPieces (PathPiece (..))
-import Data.Maybe (fromJust)
-import qualified Data.HashMap.Lazy as M
 import Init
-import Data.Aeson
-
-import Data.Conduit
-import qualified Data.Conduit.List as CL
-import Data.Function (on)
-import Data.Functor.Identity
-import Data.Functor.Constant
 import PersistTestPetType
 import PersistTestPetCollarType
 
@@ -82,6 +80,7 @@ share [mkPersist persistSettings,  mkMigrate "testMigrate", mkDeleteCascade pers
     -- Indented comment
     name Text
     age Int
+    deriving Show Eq
   PersonMaybeAge
     name Text
     age Int Maybe
@@ -205,7 +204,7 @@ specs = describe "persistent" $ do
 #ifdef WITH_MONGODB
       ps <- catchPersistException (selectList [FilterOr []] [Desc PersonAge]) []
 #else
-      ps <- (selectList [FilterOr []] [Desc PersonAge])
+      ps <- selectList [FilterOr []] [Desc PersonAge]
 #endif
       assertEmpty ps
 
@@ -215,7 +214,7 @@ specs = describe "persistent" $ do
 #ifdef WITH_MONGODB
       c <- catchPersistException (count $ [PersonName ==. "a"] ||. []) 1
 #else
-      c <- (count $ [PersonName ==. "a"] ||. [])
+      c <- count $ [PersonName ==. "a"] ||. []
 #endif
       c @== (1::Int)
 
@@ -242,13 +241,13 @@ specs = describe "persistent" $ do
                   , Person "u" 2 Nothing
                   ]
 
-      a <- fmap (map $ personName . entityVal) $ selectList [] [Desc PersonAge, Asc PersonName, OffsetBy 2, LimitTo 3]
+      a <- map (personName . entityVal) <$> selectList [] [Desc PersonAge, Asc PersonName, OffsetBy 2, LimitTo 3]
       a @== ["y", "v", "x"]
 
-      b <- fmap (map $ personName . entityVal) $ selectList [] [OffsetBy 2, Desc PersonAge, LimitTo 3, Asc PersonName]
+      b <- map (personName . entityVal) <$> selectList [] [OffsetBy 2, Desc PersonAge, LimitTo 3, Asc PersonName]
       b @== a
 
-      c <- fmap (map $ personName . entityVal) $ selectList [] [OffsetBy 2, Desc PersonAge, LimitTo 3, Asc PersonName, LimitTo 1, OffsetBy 1]
+      c <- map (personName . entityVal) <$> selectList [] [OffsetBy 2, Desc PersonAge, LimitTo 3, Asc PersonName, LimitTo 1, OffsetBy 1]
       c @== a
 
 
@@ -332,6 +331,7 @@ specs = describe "persistent" $ do
       pnm <- selectList [PersonName !=. "Eliezer"] []
       map entityVal pnm @== [mic]
 
+
   it "Double Maybe" $ db $ do
       deleteWhere ([] :: [Filter PersonMay])
       let mic = PersonMay (Just "Michael") Nothing
@@ -383,7 +383,7 @@ specs = describe "persistent" $ do
       key2 <- insert $ Person "Michael2" 90 Nothing
       _    <- insert $ Person "Michael3" 90 Nothing
       let p91 = Person "Michael4" 91 Nothing
-      key91 <- insert $ p91
+      key91 <- insert p91
 
       ps90 <- selectList [PersonAge ==. 90] []
       assertNotEmpty ps90
@@ -399,7 +399,7 @@ specs = describe "persistent" $ do
   it "deleteBy" $ db $ do
       _ <- insert $ Person "Michael2" 27 Nothing
       let p3 = Person "Michael3" 27 Nothing
-      key3 <- insert $ p3
+      key3 <- insert p3
 
       ps2 <- selectList [PersonName ==. "Michael2"] []
       assertNotEmpty ps2
@@ -415,7 +415,7 @@ specs = describe "persistent" $ do
   it "delete" $ db $ do
       key2 <- insert $ Person "Michael2" 27 Nothing
       let p3 = Person "Michael3" 27 Nothing
-      key3 <- insert $ p3
+      key3 <- insert p3
 
       pm2 <- selectList [PersonName ==. "Michael2"] []
       assertNotEmpty pm2
@@ -511,21 +511,55 @@ specs = describe "persistent" $ do
         let vals = map mkUpsert2 ["putMany4", "putMany5", "putMany6", "putMany7"]
         Entity k1 _ <- insertEntity $ mkUpsert1 "putMany4"
         Entity k2 _ <- insertEntity $ mkUpsert1 "putMany5"
-        _ <- putMany $ [mkUpsert1 "putMany4"] ++ vals
+        _ <- putMany $ mkUpsert1 "putMany4" : vals
         Just e1 <- getBy $ UniqueUpsert "putMany4"
         Just e2 <- getBy $ UniqueUpsert "putMany5"
         Just e3@(Entity k3 _) <- getBy $ UniqueUpsert "putMany6"
         Just e4@(Entity k4 _) <- getBy $ UniqueUpsert "putMany7"
 
-        [e1,e2,e3,e4] @== [(Entity k1 $ mkUpsert2 "putMany4")
-                          ,(Entity k2 $ mkUpsert2 "putMany5")
-                          ,(Entity k3 $ mkUpsert2 "putMany6")
-                          ,(Entity k4 $ mkUpsert2 "putMany7")
+        [e1,e2,e3,e4] @== [ Entity k1 (mkUpsert2 "putMany4")
+                          , Entity k2 (mkUpsert2 "putMany5")
+                          , Entity k3 (mkUpsert2 "putMany6")
+                          , Entity k4 (mkUpsert2 "putMany7")
                           ]
         deleteBy $ UniqueUpsert "putMany4"
         deleteBy $ UniqueUpsert "putMany5"
         deleteBy $ UniqueUpsert "putMany6"
         deleteBy $ UniqueUpsert "putMany7"
+
+  describe "repsertMany" $ do
+    it "adds new rows when no conflicts" $ db $ do
+        ids@[johnId, janeId, aliceId, eveId] <- replicateM 4 $ liftIO (Person1Key `fmap` generateKey)
+        let john = Person1 "john" 20
+        let jane = Person1 "jane" 18
+        let alice = Person1 "alice" 18
+        let eve = Person1 "eve" 19
+
+        insertKey johnId john
+        insertKey janeId jane
+
+        _ <- repsertMany [ (aliceId, alice), (eveId, eve) ]
+        es <- getMany ids
+
+        let rs = [john, jane, alice, eve]
+        es @== Map.fromList (zip ids rs)
+        mapM_ delete ids
+
+    it "handles conflicts by replacing old keys with new records" $ db $ do
+        let john = Person1 "john" 20
+        let jane = Person1 "jane" 18
+        let alice = Person1 "alice" 18
+        let eve = Person1 "eve" 19
+
+        johnId <- insert john
+        janeId <- insert jane
+
+        _ <- repsertMany [ (johnId, alice), (janeId, eve) ]
+        (Just alice') <- get johnId
+        (Just eve') <- get janeId
+
+        [alice',eve'] @== [alice,eve]
+        mapM_ delete [johnId, janeId]
 
   describe "upsert" $ do
     it "adds a new row with no updates" $ db $ do
@@ -814,11 +848,11 @@ specs = describe "persistent" $ do
 
   it "retrieves a belongsToJust association" $ db $ do
       let p = Person "pet owner" 30 Nothing
-      person <- insert $ p
+      person <- insert p
       let cat = Pet person "Mittens" Cat
       p2 <- getJust $ petOwnerId cat
       p @== p2
-      p3 <- belongsToJust petOwnerId $ cat
+      p3 <- belongsToJust petOwnerId cat
       p @== p3
 
   it "retrieves a belongsTo association" $ db $ do
@@ -827,7 +861,7 @@ specs = describe "persistent" $ do
       let cat = MaybeOwnedPet (Just person) "Mittens" Cat
       p2 <- getJust $ fromJust $ maybeOwnedPetOwnerId cat
       p @== p2
-      Just p4 <- belongsTo maybeOwnedPetOwnerId $ cat
+      Just p4 <- belongsTo maybeOwnedPetOwnerId cat
       p @== p4
 
   it "derivePersistField" $ db $ do
@@ -990,7 +1024,7 @@ specs = describe "persistent" $ do
       ret1 <- rawSql query []
       ret2 <- rawSql query [] :: MonadIO m => SqlPersistT m [Entity (ReverseFieldOrder Person)]
       liftIO $ ret1 @?= [Entity p1k p1]
-      liftIO $ ret2 @?= [Entity (RFOKey $ unPersonKey $ p1k) (RFO p1)]
+      liftIO $ ret2 @?= [Entity (RFOKey $ unPersonKey p1k) (RFO p1)]
 
   it "rawSql/OUTER JOIN" $ db $ do
       let insert' :: (PersistStore backend, PersistEntity val, PersistEntityBackend val ~ BaseBackend backend, MonadIO m)
@@ -1071,7 +1105,7 @@ specs = describe "persistent" $ do
       ret1 <- runQuery
       ret2 <- runQuery :: (MonadIO m, Functor m) => SqlPersistT m [Entity (ReverseFieldOrder Person)]
       liftIO $ ret1 @?= [Entity p1k p1]
-      liftIO $ ret2 @?= [Entity (RFOKey $ unPersonKey $ p1k) (RFO p1)]
+      liftIO $ ret2 @?= [Entity (RFOKey $ unPersonKey p1k) (RFO p1)]
 
   it "sqlQQ/OUTER JOIN" $ db $ do
       let insert' :: (PersistStore backend, PersistEntity val, PersistEntityBackend val ~ BaseBackend backend, MonadIO m)
@@ -1101,7 +1135,7 @@ specs = describe "persistent" $ do
     let catcher :: Monad m => SomeException -> m ()
         catcher _ = return ()
     _ <- insert $ Person "A" 0 Nothing
-    _ <- (insert (Person "A" 1 Nothing) >> return ()) `catch` catcher
+    _ <- insert_ (Person "A" 1 Nothing) `catch` catcher
     _ <- insert $ Person "B" 0 Nothing
     return ()
 #    endif

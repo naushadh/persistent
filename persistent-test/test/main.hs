@@ -23,6 +23,7 @@ import qualified InsertDuplicateUpdate
 import qualified UniqueTest
 import qualified MigrationColumnLengthTest
 import qualified EquivalentTypeTest
+import qualified TransactionLevelTest
 
 #ifndef WITH_NOSQL
 #  ifdef WITH_SQLITE
@@ -35,6 +36,9 @@ import qualified MigrationTest
 
 #ifdef WITH_MYSQL
 import qualified MigrationIdempotencyTest
+#endif
+#ifdef WITH_POSTGRESQL
+import qualified JSONTest
 #endif
 
 
@@ -81,6 +85,7 @@ main = do
 #  endif
       , CustomPrimaryKeyReferenceTest.migration
       , MigrationColumnLengthTest.migration
+      , TransactionLevelTest.migration
       ]
     PersistentTest.cleanDB
 #endif
@@ -107,10 +112,14 @@ main = do
     InsertDuplicateUpdate.specs
     MigrationColumnLengthTest.specs
     EquivalentTypeTest.specs
+    TransactionLevelTest.specs
 
 #ifdef WITH_SQLITE
     MigrationTest.specs
 #endif
 #ifdef WITH_MYSQL
     MigrationIdempotencyTest.specs
+#endif
+#ifdef WITH_POSTGRESQL
+    JSONTest.specs
 #endif

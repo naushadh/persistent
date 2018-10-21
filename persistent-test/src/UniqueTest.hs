@@ -1,4 +1,14 @@
-{-# LANGUAGE QuasiQuotes, TemplateHaskell, CPP, GADTs, TypeFamilies, OverloadedStrings, FlexibleContexts, EmptyDataDecls, FlexibleInstances, GeneralizedNewtypeDeriving, MultiParamTypeClasses #-}
+{-# LANGUAGE CPP #-}
+{-# LANGUAGE EmptyDataDecls #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE QuasiQuotes #-}
+{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeFamilies #-}
 module UniqueTest where
 
 import Init
@@ -10,12 +20,12 @@ share [mkPersist sqlSettings,  mkMigrate "uniqueMigrate"] [persistLowerCase|
 #endif
   TestNonNull
     fieldA Int
-    UniqueTestNonNull fieldA
+    UniqueTestNonNull fieldA sql=UniqueTestNonNull !force
     deriving Eq Show
   TestNull
     fieldA Int
     fieldB Int Maybe
-    UniqueTestNull fieldA fieldB !force
+    UniqueTestNull fieldA fieldB sql=UniqueTestNonNullSqlName !force
     deriving Eq Show
 #ifndef WITH_NOSQL
   TestCheckmark

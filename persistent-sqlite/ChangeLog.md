@@ -1,3 +1,27 @@
+# Changelog for persistent-sqlite
+
+## 2.9.0
+
+* Added support for SQL isolation levels to via SqlBackend. [#812] SQLite technically only supports Serializable.
+* Update the vendored SQLite C library from 3.22.0 to 3.25.2. See [the SQLite changelog](https://sqlite.org/changes.html) for details.
+* Fix [832](https://github.com/yesodweb/persistent/issues/832): `repsertMany` now matches `mapM_ (uncurry repsert)` and is atomic.
+
+## 2.8.2
+
+* Add the `extraPragmas` setting
+
+## 2.8.1.2
+
+* Add flag to enable full-text search extensions (enabled by default)
+* Add flag to enable URI filename support (enabled by default)
+* Add flag to enable using usleep (enabled by default)
+  - Enabling usleep allows sqlite to use a finer granularity when sleeping (reduces time between locks)
+* Add flag to enable json1 extension (enabled by default)
+
+## 2.8.1.1
+
+* Update the vendored SQLite C library from 3.19.3 to 3.22.0. See [the SQLite changelog](https://sqlite.org/changes.html) for details.
+
 ## 2.8.1
 
 * Updated `SqlBackend` definition to set `connPutManySql`. [#770](https://github.com/yesodweb/persistent/pull/770)
@@ -26,7 +50,7 @@
 
 ## 2.6.2.1
 
-* Update `sqlite` cbit sources to 3.19.3 from 3.12.1
+* Update the vendored SQLite C library from 3.12.1 to 3.19.3. See [the SQLite changelog](https://sqlite.org/changes.html) for details.
 
 ## 2.6.2
 

@@ -1,5 +1,5 @@
 {-|
-@since 2.7.2
+@since 2.9.0
 
 Module: module Database.Persist.Sql.Raw.QQ
 Description: QuasiQuoters for performing raw sql queries
@@ -40,9 +40,8 @@ import Language.Haskell.TH.Quote
 import Language.Haskell.Meta.Parse
 
 import Database.Persist.Class (toPersistValue)
-import Database.Persist.Sql.Raw (rawSql, rawQuery, rawQueryRes, rawExecute, rawExecuteCount)
-import Database.Persist.Sql.Types (connEscapeName)
-import Database.Persist.Sql.Orphan.PersistStore (getFieldName, getTableName)
+import Database.Persist
+import Database.Persist.Sql
 
 data Token
   = Literal String
@@ -167,30 +166,30 @@ makeQQ x = QuasiQuoter
 -- looks up the column's name and properly escapes it and @#{value}@ inserts
 -- the value via the usual parameter substitution mechanism.
 --
--- @since 2.7.2
+-- @since 2.9.0
 sqlQQ :: QuasiQuoter
 sqlQQ = makeQQ [| rawSql |]
 
 -- | Analoguous to 'Database.Persist.Sql.Raw.rawExecute'
 --
--- @since 2.7.2
+-- @since 2.9.0
 executeQQ :: QuasiQuoter
 executeQQ = makeQQ [| rawExecute |]
 
 -- | Analoguous to 'Database.Persist.Sql.Raw.rawExecuteCount'
 --
--- @since 2.7.2
+-- @since 2.9.0
 executeCountQQ :: QuasiQuoter
 executeCountQQ = makeQQ [| rawExecuteCount |]
 
 -- | Analoguous to 'Database.Persist.Sql.Raw.rawQuery'
 --
--- @since 2.7.2
+-- @since 2.9.0
 queryQQ :: QuasiQuoter
 queryQQ = makeQQ [| rawQuery |]
 
 -- | Analoguous to 'Database.Persist.Sql.Raw.rawQueryRes'
 --
--- @since 2.7.2
+-- @since 2.9.0
 queryResQQ :: QuasiQuoter
 queryResQQ = makeQQ [| rawQueryRes |]

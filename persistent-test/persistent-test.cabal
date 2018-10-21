@@ -1,5 +1,5 @@
 name:            persistent-test
-version:         2.0.0.3
+version:         2.0.2.0
 license:         MIT
 license-file:    LICENSE
 author:          Michael Snoyman <michael@snoyman.com>
@@ -85,6 +85,7 @@ library
                      InsertDuplicateUpdate
                      MigrationColumnLengthTest
                      EquivalentTypeTest
+                     TransactionLevelTest
 
     hs-source-dirs: src, test
 
@@ -95,6 +96,7 @@ library
     build-depends:   base                     >= 4.6       && < 5
                    , persistent
                    , persistent-template
+                   , persistent-qq
                    , HUnit
                    , hspec >= 1.12.1
                    , hspec-expectations
@@ -153,6 +155,8 @@ library
                    , postgresql-simple
                    , postgresql-libpq
      cpp-options: -DWITH_POSTGRESQL -DDEBUG
+     exposed-modules: JSONTest
+
 
    if flag(mysql)
      build-depends:  persistent-mysql
