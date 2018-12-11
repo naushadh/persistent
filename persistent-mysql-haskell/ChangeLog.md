@@ -2,7 +2,7 @@
 
 ## 0.5.1
 
-- [#8](https://github.com/naushadh/persistent/pull/8) Add `insertEntityOnDuplicateKeyUpdate` and `insertEntityManyOnDuplicateKeyUpdate` functions
+- [#9](https://github.com/naushadh/persistent/pull/9) Add `insertEntityOnDuplicateKeyUpdate` and `insertEntityManyOnDuplicateKeyUpdate` functions
 
 
 ## 0.5.0
