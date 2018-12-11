@@ -22,7 +22,9 @@ module Database.Persist.MySQL
   , mockMigration
   -- * @ON DUPLICATE KEY UPDATE@ Functionality
   , insertOnDuplicateKeyUpdate
+  , insertEntityOnDuplicateKeyUpdate
   , insertManyOnDuplicateKeyUpdate
+  , insertEntityManyOnDuplicateKeyUpdate
 #if MIN_VERSION_base(4,7,0)
     , HandleUpdateCollision
     , pattern SomeField
@@ -1131,6 +1133,21 @@ insertOnDuplicateKeyUpdate
 insertOnDuplicateKeyUpdate record =
   insertManyOnDuplicateKeyUpdate [record] []
 
+-- | Combination of 'insertOnDuplicateKeyUpdate' and 'insertKey'.
+insertEntityOnDuplicateKeyUpdate
+  :: ( backend ~ PersistEntityBackend record
+     , PersistEntity record
+     , MonadIO m
+     , PersistStore backend
+     , BackendCompatible SqlBackend backend
+     )
+  => Entity record
+  -> [Update record]
+  -> ReaderT backend m ()
+insertEntityOnDuplicateKeyUpdate entity =
+  insertEntityManyOnDuplicateKeyUpdate [entity] []
+
+
 -- | This type is used to determine how to update rows using MySQL's
 -- @INSERT ... ON DUPLICATE KEY UPDATE@ functionality, exposed via
 -- 'insertManyOnDuplicateKeyUpdate' in this library.
@@ -1292,7 +1309,25 @@ insertManyOnDuplicateKeyUpdate
 insertManyOnDuplicateKeyUpdate [] _ _ = return ()
 insertManyOnDuplicateKeyUpdate records fieldValues updates =
     uncurry rawExecute
-    $ mkBulkInsertQuery records fieldValues updates
+    $ mkBulkInsertQuery (Left records) fieldValues updates
+
+-- | Combination of 'insertManyOnDuplicateKeyUpdate' and 'insertEntityMany'
+insertEntityManyOnDuplicateKeyUpdate
+    :: forall record backend m.
+    ( backend ~ PersistEntityBackend record
+    , BackendCompatible SqlBackend backend
+    , PersistEntity record
+    , MonadIO m
+    )
+    => [Entity record] -- ^ A list of the records you want to insert, or update
+    -> [HandleUpdateCollision record] -- ^ A list of the fields you want to copy over.
+    -> [Update record] -- ^ A list of the updates to apply that aren't dependent on the record being inserted.
+    -> ReaderT backend m ()
+insertEntityManyOnDuplicateKeyUpdate [] _ _ = return ()
+insertEntityManyOnDuplicateKeyUpdate entities fieldValues updates =
+    uncurry rawExecute
+    $ mkBulkInsertQuery (Right entities) fieldValues updates
+
 
 -- | This creates the query for 'bulkInsertOnDuplicateKeyUpdate'. If you
 -- provide an empty list of updates to perform, then it will generate
@@ -1300,7 +1335,7 @@ insertManyOnDuplicateKeyUpdate records fieldValues updates =
 -- duplicate key exceptions.
 mkBulkInsertQuery
     :: PersistEntity record
-    => [record] -- ^ A list of the records you want to insert, or update
+    => Either [record] [Entity record] -- ^ A list of the records you want to insert, or update, possibly with keys
     -> [HandleUpdateCollision record] -- ^ A list of the fields you want to copy over.
     -> [Update record] -- ^ A list of the updates to apply that aren't dependent on the record being inserted.
     -> (Text, [PersistValue])
@@ -1312,15 +1347,18 @@ mkBulkInsertQuery records fieldValues updates =
         CopyUnlessEq rec val -> Left (fieldDbToText (persistFieldDef rec), toPersistValue val)
     (fieldsToMaybeCopy, updateFieldNames) = partitionEithers $ map mfieldDef fieldValues
     fieldDbToText = T.pack . escapeDBName . fieldDB
-    entityDef' = entityDef records
+    entityDef' = entityDef $ either id (map entityVal) records
     firstField = case entityFieldNames of
         [] -> error "The entity you're trying to insert does not have any fields."
         (field:_) -> field
-    entityFieldNames = map fieldDbToText (entityFields entityDef')
+    entityFieldNames = map fieldDbToText $ case records of
+      Left _  ->                       entityFields entityDef'
+      Right _ -> entityId entityDef' : entityFields entityDef'
     tableName = T.pack . escapeDBName . entityDB $ entityDef'
     copyUnlessValues = map snd fieldsToMaybeCopy
-    recordValues = concatMap (map toPersistValue . toPersistFields) records
-    recordPlaceholders = Util.commaSeparated $ map (Util.parenWrapped . Util.commaSeparated . map (const "?") . toPersistFields) records
+    values = either (map $ map toPersistValue . toPersistFields) (map entityValues) records
+    recordValues = concat values
+    recordPlaceholders = Util.commaSeparated $ map (Util.parenWrapped . Util.commaSeparated . map (const "?")) values
     mkCondFieldSet n _ = T.concat
         [ n
         , "=COALESCE("
