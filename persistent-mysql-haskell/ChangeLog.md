@@ -1,5 +1,10 @@
 # ChangeLog for `persistent-mysql-haskell`
 
+## 0.5.1
+
+- [#8](https://github.com/naushadh/persistent/pull/8) Add `insertEntityOnDuplicateKeyUpdate` and `insertEntityManyOnDuplicateKeyUpdate` functions
+
+
 ## 0.5.0
 
 - Port [#812](https://github.com/yesodweb/persistent/pull/812) from `persistent-mysql`: Add support for SQL isolation levels
