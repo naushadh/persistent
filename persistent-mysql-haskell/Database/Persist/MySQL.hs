@@ -1134,6 +1134,7 @@ insertOnDuplicateKeyUpdate record =
   insertManyOnDuplicateKeyUpdate [record] []
 
 -- | Combination of 'insertOnDuplicateKeyUpdate' and 'insertKey'.
+--   @since 5.1.0
 insertEntityOnDuplicateKeyUpdate
   :: ( backend ~ PersistEntityBackend record
      , PersistEntity record
@@ -1312,6 +1313,7 @@ insertManyOnDuplicateKeyUpdate records fieldValues updates =
     $ mkBulkInsertQuery (Left records) fieldValues updates
 
 -- | Combination of 'insertManyOnDuplicateKeyUpdate' and 'insertEntityMany'
+--   @since 5.1.0
 insertEntityManyOnDuplicateKeyUpdate
     :: forall record backend m.
     ( backend ~ PersistEntityBackend record
