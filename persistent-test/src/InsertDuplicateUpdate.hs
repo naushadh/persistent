@@ -29,6 +29,10 @@ share [mkPersist sqlSettings, mkMigrate "duplicateMigrate"] [persistUpperCase|
      Primary name
      deriving Eq Show Ord
 
+  ItemSize
+     Id          (Key Item) sqltype=varchar(80)
+     size        Int
+     deriving Eq Show Ord
 |]
 
 specs :: Spec
@@ -36,6 +40,9 @@ specs = describe "DuplicateKeyUpdate" $ do
   let item1 = Item "item1" "" (Just 3) Nothing
       item2 = Item "item2" "hello world" Nothing (Just 2)
       items = [item1, item2]
+      item1Size = ItemSize 10
+      item2Size = ItemSize 17
+      itemsSize = [item1Size, item2Size]
   describe "insertOnDuplicateKeyUpdate" $ do
     it "inserts appropriately" $ db $ do
       deleteWhere ([] :: [Filter Item])
@@ -52,6 +59,27 @@ specs = describe "DuplicateKeyUpdate" $ do
         [ItemDescription =. newDescription]
       Just item <- get (ItemKey "item1")
       item @== item1 { itemDescription = newDescription }
+
+  describe "insertEntityOnDuplicateKeyUpdate" $ do
+    it "inserts appropriately" $ db $ do
+      deleteWhere ([] :: [Filter Item])
+      deleteWhere ([] :: [Filter ItemSize])
+      key <- insert item1
+      insertEntityOnDuplicateKeyUpdate (Entity (ItemSizeKey key) item1Size) [ItemSizeSize =. 42]
+      Just itemSize <- get (ItemSizeKey key)
+      itemSize @== item1Size
+
+    it "performs only updates given if record already exists" $ db $ do
+      deleteWhere ([] :: [Filter Item])
+      deleteWhere ([] :: [Filter ItemSize])
+      let newCount = 13
+      key <- insert item1
+      insertKey (ItemSizeKey key) item1Size
+      insertEntityOnDuplicateKeyUpdate
+        (Entity (ItemSizeKey key) item1Size)
+        [ItemSizeSize =. newCount]
+      Just itemSize <- get (ItemSizeKey key)
+      itemSize @== item1Size { itemSizeSize = newCount }
 
   describe "insertManyOnDuplicateKeyUpdate" $ do
     it "inserts fresh records" $ db $ do
@@ -94,6 +122,32 @@ specs = describe "DuplicateKeyUpdate" $ do
         []
       dbItems <- sort . fmap entityVal <$> selectList [] []
       dbItems @== sort (newItem : items)
+
+  describe "insertEntityManyOnDuplicateKeyUpdate" $ do
+    it "inserts fresh records" $ db $ do
+      deleteWhere ([] :: [Filter Item])
+      deleteWhere ([] :: [Filter ItemSize])
+      keys <- insertMany items
+      let entities = zipWith (Entity . ItemSizeKey) keys itemsSize
+      void $ insertEntityMany $ tail entities
+      insertEntityManyOnDuplicateKeyUpdate
+        entities
+        [copyField ItemSizeSize]
+        []
+      dbItems <- selectList [] []
+      sort dbItems @== sort entities
+    it "updates existing records" $ db $ do
+      deleteWhere ([] :: [Filter Item])
+      deleteWhere ([] :: [Filter ItemSize])
+      keys <- insertMany items
+      let entities = zipWith (Entity . ItemSizeKey) keys itemsSize
+      void $ insertEntityMany entities
+      insertEntityManyOnDuplicateKeyUpdate
+        entities
+        []
+        [ItemSizeSize +=. 1]
+      dbItems <- selectList [] []
+      sort dbItems @== sort (map (\(Entity k v) -> Entity k (v { itemSizeSize = itemSizeSize v + 1 })) entities)
 
 #else
 specs :: Spec
