@@ -1,5 +1,9 @@
 # ChangeLog for `persistent-mysql-haskell`
 
+## 0.5.2
+
+- Fix [stackage#4312](https://github.com/commercialhaskell/stackage/issues/4312): Relax `network` version bound.
+
 ## 0.5.1
 
 - [#9](https://github.com/naushadh/persistent/pull/9) Add `insertEntityOnDuplicateKeyUpdate` and `insertEntityManyOnDuplicateKeyUpdate` functions
