@@ -54,27 +54,6 @@ specs = describe "DuplicateKeyUpdate" $ do
       Just item <- get (ItemKey "item1")
       item @== item1 { itemDescription = newDescription }
 
-  describe "insertEntityOnDuplicateKeyUpdate" $ do
-    it "inserts appropriately" $ db $ do
-      deleteWhere ([] :: [Filter Item])
-      deleteWhere ([] :: [Filter ItemSize])
-      key <- insert item1
-      insertEntityOnDuplicateKeyUpdate (Entity (ItemSizeKey key) item1Size) [ItemSizeSize =. 42]
-      Just itemSize <- get (ItemSizeKey key)
-      itemSize @== item1Size
-
-    it "performs only updates given if record already exists" $ db $ do
-      deleteWhere ([] :: [Filter Item])
-      deleteWhere ([] :: [Filter ItemSize])
-      let newCount = 13
-      key <- insert item1
-      insertKey (ItemSizeKey key) item1Size
-      insertEntityOnDuplicateKeyUpdate
-        (Entity (ItemSizeKey key) item1Size)
-        [ItemSizeSize =. newCount]
-      Just itemSize <- get (ItemSizeKey key)
-      itemSize @== item1Size { itemSizeSize = newCount }
-
   describe "insertManyOnDuplicateKeyUpdate" $ do
     it "inserts fresh records" $ db $ do
       deleteWhere ([] :: [Filter Item])
