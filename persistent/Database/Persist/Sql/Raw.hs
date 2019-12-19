@@ -1,27 +1,24 @@
-{-# LANGUAGE ConstraintKinds #-}
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE TypeFamilies #-}
 module Database.Persist.Sql.Raw where
+
+import Control.Exception (throwIO)
+import Control.Monad (when, liftM)
+import Control.Monad.IO.Class (MonadIO, liftIO)
+import Control.Monad.Logger (logDebugNS, runLoggingT)
+import Control.Monad.Reader (ReaderT, ask, MonadReader)
+import Control.Monad.Trans.Resource (MonadResource,release)
+import Data.Acquire (allocateAcquire, Acquire, mkAcquire, with)
+import Data.Conduit
+import Data.IORef (writeIORef, readIORef, newIORef)
+import qualified Data.Map as Map
+import Data.Int (Int64)
+import Data.Text (Text, pack)
+import qualified Data.Text as T
 
 import Database.Persist
 import Database.Persist.Sql.Types
 import Database.Persist.Sql.Class
-import qualified Data.Map as Map
-import Control.Monad.IO.Class (MonadIO, liftIO)
-import Control.Monad.Reader (ReaderT, ask, MonadReader)
-import Data.Acquire (allocateAcquire, Acquire, mkAcquire, with)
-import Data.IORef (writeIORef, readIORef, newIORef)
-import Control.Exception (throwIO)
-import Control.Monad (when, liftM)
-import Data.Text (Text, pack)
-import Control.Monad.Logger (logDebugNS, runLoggingT)
-import Data.Int (Int64)
-import qualified Data.Text as T
-import Data.Conduit
-import Control.Monad.Trans.Resource (MonadResource,release)
 
-rawQuery :: (MonadResource m, MonadReader env m, HasPersistBackend env, BaseBackend env ~ SqlBackend)
+rawQuery :: (MonadResource m, MonadReader env m, BackendCompatible SqlBackend env)
          => Text
          -> [PersistValue]
          -> ConduitM () [PersistValue] m ()
@@ -32,12 +29,12 @@ rawQuery sql vals = do
     release releaseKey
 
 rawQueryRes
-    :: (MonadIO m1, MonadIO m2, IsSqlBackend env)
+    :: (MonadIO m1, MonadIO m2, BackendCompatible SqlBackend env)
     => Text
     -> [PersistValue]
     -> ReaderT env m1 (Acquire (ConduitM () [PersistValue] m2 ()))
 rawQueryRes sql vals = do
-    conn <- persistBackend `liftM` ask
+    conn <- projectBackend `liftM` ask
     let make = do
             runLoggingT (logDebugNS (pack "SQL") $ T.append sql $ pack $ "; " ++ show vals)
                 (connLogFunc conn)
@@ -86,11 +83,8 @@ getStmtConn conn sql = do
             let stmt = Statement
                     { stmtFinalize = do
                         active <- readIORef iactive
-                        if active
-                            then do
-                                stmtFinalize stmt'
-                                writeIORef iactive False
-                            else return ()
+                        when active $ do stmtFinalize stmt'
+                                         writeIORef iactive False
                     , stmtReset = do
                         active <- readIORef iactive
                         when active $ stmtReset stmt'
@@ -109,7 +103,8 @@ getStmtConn conn sql = do
             return stmt
 
 -- | Execute a raw SQL statement and return its results as a
--- list.
+-- list. If you do not expect a return value, use of
+-- `rawExecute` is recommended.
 --
 -- If you're using 'Entity'@s@ (which is quite likely), then you
 -- /must/ use entity selection placeholders (double question
@@ -145,19 +140,19 @@ getStmtConn conn sql = do
 --     deriving Show
 -- |]
 -- @
--- 
+--
 -- Examples based on the above schema:
--- 
--- @ 
+--
+-- @
 -- getPerson :: MonadIO m => ReaderT SqlBackend m [Entity Person]
 -- getPerson = rawSql "select ?? from person where name=?" [PersistText "john"]
--- 
+--
 -- getAge :: MonadIO m => ReaderT SqlBackend m [Single Int]
 -- getAge = rawSql "select person.age from person where name=?" [PersistText "john"]
--- 
+--
 -- getAgeName :: MonadIO m => ReaderT SqlBackend m [(Single Int, Single Text)]
 -- getAgeName = rawSql "select person.age, person.name from person where name=?" [PersistText "john"]
--- 
+--
 -- getPersonBlog :: MonadIO m => ReaderT SqlBackend m [(Entity Person, Entity BlogPost)]
 -- getPersonBlog = rawSql "select ??,?? from person,blog_post where person.id = blog_post.author_id" []
 -- @
@@ -173,7 +168,7 @@ getStmtConn conn sql = do
 -- > {-# LANGUAGE QuasiQuotes                #-}
 -- > {-# LANGUAGE TemplateHaskell            #-}
 -- > {-# LANGUAGE TypeFamilies               #-}
--- > 
+-- >
 -- > import           Control.Monad.IO.Class  (liftIO)
 -- > import           Control.Monad.Logger    (runStderrLoggingT)
 -- > import           Database.Persist
@@ -182,32 +177,32 @@ getStmtConn conn sql = do
 -- > import           Database.Persist.Sql
 -- > import           Database.Persist.Postgresql
 -- > import           Database.Persist.TH
--- > 
+-- >
 -- > share [mkPersist sqlSettings, mkMigrate "migrateAll"] [persistLowerCase|
 -- > Person
 -- >     name String
 -- >     age Int Maybe
 -- >     deriving Show
 -- > |]
--- > 
+-- >
 -- > conn = "host=localhost dbname=new_db user=postgres password=postgres port=5432"
--- > 
+-- >
 -- > getPerson :: MonadIO m => ReaderT SqlBackend m [Entity Person]
 -- > getPerson = rawSql "select ?? from person where name=?" [PersistText "sibi"]
--- > 
+-- >
 -- > liftSqlPersistMPool y x = liftIO (runSqlPersistMPool y x)
--- > 
+-- >
 -- > main :: IO ()
 -- > main = runStderrLoggingT $ withPostgresqlPool conn 10 $ liftSqlPersistMPool $ do
 -- >          runMigration migrateAll
 -- >          xs <- getPerson
 -- >          liftIO (print xs)
--- > 
+-- >
 
-rawSql :: (RawSql a, MonadIO m)
+rawSql :: (RawSql a, MonadIO m, BackendCompatible SqlBackend backend)
        => Text             -- ^ SQL statement, possibly with placeholders.
        -> [PersistValue]   -- ^ Values to fill the placeholders.
-       -> ReaderT SqlBackend m [a]
+       -> ReaderT backend m [a]
 rawSql stmt = run
     where
       getType :: (x -> m [a]) -> a
@@ -235,7 +230,7 @@ rawSql stmt = run
                         ]
 
       run params = do
-        conn <- ask
+        conn <- projectBackend `liftM` ask
         let (colCount, colSubsts) = rawSqlCols (connEscapeName conn) x
         withStmt' colSubsts params $ firstRow colCount
 

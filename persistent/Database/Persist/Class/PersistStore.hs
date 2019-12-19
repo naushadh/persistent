@@ -1,6 +1,3 @@
-{-# LANGUAGE TypeFamilies, FlexibleContexts #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE ConstraintKinds #-}
 module Database.Persist.Class.PersistStore
     ( HasPersistBackend (..)
@@ -21,18 +18,19 @@ module Database.Persist.Class.PersistStore
     , BackendCompatible(..)
     ) where
 
-import qualified Data.Text as T
-import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Exception (throwIO)
-import Control.Monad.Trans.Reader (ReaderT)
+import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Reader (MonadReader (ask), runReaderT)
+import Control.Monad.Trans.Reader (ReaderT)
+import qualified Data.Aeson as A
+import Data.Map (Map)
+import qualified Data.Map as Map
+import qualified Data.Maybe as Maybe
+import qualified Data.Text as T
+
 import Database.Persist.Class.PersistEntity
 import Database.Persist.Class.PersistField
 import Database.Persist.Types
-import qualified Data.Aeson as A
-import qualified Data.Map as Map
-import Data.Map (Map)
-import qualified Data.Maybe as Maybe
 
 -- | Class which allows the plucking of a @BaseBackend backend@ from some larger type.
 -- For example,
@@ -100,11 +98,11 @@ class BackendCompatible sup sub where
 type PersistRecordBackend record backend = (PersistEntity record, PersistEntityBackend record ~ BaseBackend backend)
 
 liftPersist
-    :: (MonadIO m, MonadReader backend m, HasPersistBackend backend)
-    => ReaderT (BaseBackend backend) IO b -> m b
+    :: (MonadIO m, MonadReader backend m)
+    => ReaderT backend IO b -> m b
 liftPersist f = do
     env <- ask
-    liftIO $ runReaderT f (persistBackend env)
+    liftIO $ runReaderT f env
 
 -- | 'ToBackendKey' converts a 'PersistEntity' 'Key' into a 'BackendKey'
 -- This can be used by each backend to convert between a 'Key' and a plain
@@ -586,7 +584,6 @@ class
 --
 -- This just throws an error.
 getJust :: ( PersistStoreRead backend
-           , Show (Key record)
            , PersistRecordBackend record backend
            , MonadIO m
            ) => Key record -> ReaderT backend m record

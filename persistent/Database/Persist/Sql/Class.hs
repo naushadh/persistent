@@ -1,47 +1,36 @@
 {-# LANGUAGE CPP #-}
-{-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE DefaultSignatures #-}
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE PatternGuards #-}
-
-#if !MIN_VERSION_base(4,8,0)
-{-# LANGUAGE OverlappingInstances #-}
-#endif
-
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeSynonymInstances #-}
+{-# LANGUAGE UndecidableInstances #-}
 module Database.Persist.Sql.Class
     ( RawSql (..)
     , PersistFieldSql (..)
     ) where
 
-import Control.Applicative as A ((<$>), (<*>))
-import Database.Persist
-import Data.Monoid ((<>))
-import Database.Persist.Sql.Types
-import Data.Text (Text, intercalate, pack)
-import Data.Maybe (fromMaybe)
+import Data.Bits (bitSizeMaybe)
+import Data.ByteString (ByteString)
 import Data.Fixed
+import Data.Int
+import qualified Data.IntMap as IM
+import qualified Data.Map as M
+import Data.Maybe (fromMaybe)
+import Data.Monoid ((<>))
 import Data.Proxy (Proxy)
+import qualified Data.Set as S
+import Data.Text (Text, intercalate, pack)
 import qualified Data.Text as T
 import qualified Data.Text.Lazy as TL
-import qualified Data.Map as M
-import qualified Data.IntMap as IM
-import qualified Data.Set as S
 import Data.Time (UTCTime, TimeOfDay, Day)
-import Data.Int
-import Data.Word
-import Data.ByteString (ByteString)
-import Text.Blaze.Html (Html)
-import Data.Bits (bitSizeMaybe)
 import qualified Data.Vector as V
-
-#if MIN_VERSION_base(4,8,0)
+import Data.Word
 import Numeric.Natural (Natural)
-#endif
+import Text.Blaze.Html (Html)
+
+import Database.Persist
+import Database.Persist.Sql.Types
+
 
 -- | Class for data types that may be retrived from a 'rawSql'
 -- query.
@@ -60,7 +49,7 @@ class RawSql a where
 instance PersistField a => RawSql (Single a) where
     rawSqlCols _ _         = (1, [])
     rawSqlColCountReason _ = "one column for a 'Single' data type"
-    rawSqlProcessRow [pv]  = Single A.<$> fromPersistValue pv
+    rawSqlProcessRow [pv]  = Single <$> fromPersistValue pv
     rawSqlProcessRow _     = Left $ pack "RawSql (Single a): wrong number of columns."
 
 instance
@@ -89,8 +78,8 @@ instance
           1 -> "one column for an 'Entity' data type without fields"
           n -> show n ++ " columns for an 'Entity' data type"
     rawSqlProcessRow row = case splitAt nKeyFields row of
-      (rowKey, rowVal) -> Entity A.<$> keyFromValues rowKey
-                                 A.<*> fromPersistValues rowVal
+      (rowKey, rowVal) -> Entity <$> keyFromValues rowKey
+                                 <*> fromPersistValues rowVal
       where
         nKeyFields = length $ entityKeyFields entDef
         entDef = entityDef (Nothing :: Maybe record)
@@ -208,6 +197,77 @@ from8 (a,b,c,d,e,f,g,h) = ((a,b),(c,d),(e,f),(g,h))
 to8 :: ((a,b),(c,d),(e,f),(g,h)) -> (a,b,c,d,e,f,g,h)
 to8 ((a,b),(c,d),(e,f),(g,h)) = (a,b,c,d,e,f,g,h)
 
+-- | @since 2.10.2
+instance (RawSql a, RawSql b, RawSql c,
+          RawSql d, RawSql e, RawSql f,
+          RawSql g, RawSql h, RawSql i)
+       => RawSql (a, b, c, d, e, f, g, h, i) where
+    rawSqlCols e         = rawSqlCols e         . from9
+    rawSqlColCountReason = rawSqlColCountReason . from9
+    rawSqlProcessRow     = fmap to9 . rawSqlProcessRow
+
+-- | @since 2.10.2
+from9 :: (a,b,c,d,e,f,g,h,i) -> ((a,b),(c,d),(e,f),(g,h),i)
+from9 (a,b,c,d,e,f,g,h,i) = ((a,b),(c,d),(e,f),(g,h),i)
+
+-- | @since 2.10.2
+to9 :: ((a,b),(c,d),(e,f),(g,h),i) -> (a,b,c,d,e,f,g,h,i)
+to9 ((a,b),(c,d),(e,f),(g,h),i) = (a,b,c,d,e,f,g,h,i)
+
+-- | @since 2.10.2
+instance (RawSql a, RawSql b, RawSql c,
+          RawSql d, RawSql e, RawSql f,
+          RawSql g, RawSql h, RawSql i,
+          RawSql j)
+       => RawSql (a, b, c, d, e, f, g, h, i, j) where
+    rawSqlCols e         = rawSqlCols e         . from10
+    rawSqlColCountReason = rawSqlColCountReason . from10
+    rawSqlProcessRow     = fmap to10 . rawSqlProcessRow
+
+-- | @since 2.10.2
+from10 :: (a,b,c,d,e,f,g,h,i,j) -> ((a,b),(c,d),(e,f),(g,h),(i,j))
+from10 (a,b,c,d,e,f,g,h,i,j) = ((a,b),(c,d),(e,f),(g,h),(i,j))
+
+-- | @since 2.10.2
+to10 :: ((a,b),(c,d),(e,f),(g,h),(i,j)) -> (a,b,c,d,e,f,g,h,i,j)
+to10 ((a,b),(c,d),(e,f),(g,h),(i,j)) = (a,b,c,d,e,f,g,h,i,j)
+
+-- | @since 2.10.2
+instance (RawSql a, RawSql b, RawSql c,
+          RawSql d, RawSql e, RawSql f,
+          RawSql g, RawSql h, RawSql i,
+          RawSql j, RawSql k)
+       => RawSql (a, b, c, d, e, f, g, h, i, j, k) where
+    rawSqlCols e         = rawSqlCols e         . from11
+    rawSqlColCountReason = rawSqlColCountReason . from11
+    rawSqlProcessRow     = fmap to11 . rawSqlProcessRow
+
+-- | @since 2.10.2
+from11 :: (a,b,c,d,e,f,g,h,i,j,k) -> ((a,b),(c,d),(e,f),(g,h),(i,j),k)
+from11 (a,b,c,d,e,f,g,h,i,j,k) = ((a,b),(c,d),(e,f),(g,h),(i,j),k)
+
+-- | @since 2.10.2
+to11 :: ((a,b),(c,d),(e,f),(g,h),(i,j),k) -> (a,b,c,d,e,f,g,h,i,j,k)
+to11 ((a,b),(c,d),(e,f),(g,h),(i,j),k) = (a,b,c,d,e,f,g,h,i,j,k)
+
+-- | @since 2.10.2
+instance (RawSql a, RawSql b, RawSql c,
+          RawSql d, RawSql e, RawSql f,
+          RawSql g, RawSql h, RawSql i,
+          RawSql j, RawSql k, RawSql l)
+       => RawSql (a, b, c, d, e, f, g, h, i, j, k, l) where
+    rawSqlCols e         = rawSqlCols e         . from12
+    rawSqlColCountReason = rawSqlColCountReason . from12
+    rawSqlProcessRow     = fmap to12 . rawSqlProcessRow
+
+-- | @since 2.10.2
+from12 :: (a,b,c,d,e,f,g,h,i,j,k,l) -> ((a,b),(c,d),(e,f),(g,h),(i,j),(k,l))
+from12 (a,b,c,d,e,f,g,h,i,j,k,l) = ((a,b),(c,d),(e,f),(g,h),(i,j),(k,l))
+
+-- | @since 2.10.2
+to12 :: ((a,b),(c,d),(e,f),(g,h),(i,j),(k,l)) -> (a,b,c,d,e,f,g,h,i,j,k,l)
+to12 ((a,b),(c,d),(e,f),(g,h),(i,j),(k,l)) = (a,b,c,d,e,f,g,h,i,j,k,l)
+
 extractMaybe :: Maybe a -> a
 extractMaybe = fromMaybe (error "Database.Persist.GenericSql.extractMaybe")
 
@@ -272,12 +332,7 @@ class PersistField a => PersistFieldSql a where
     sqlType :: Proxy a -> SqlType
 
 #ifndef NO_OVERLAP
-
-#if MIN_VERSION_base(4,8,0)
 instance {-# OVERLAPPING #-} PersistFieldSql [Char] where
-#else
-instance PersistFieldSql [Char] where
-#endif
     sqlType _ = SqlString
 #endif
 
@@ -321,11 +376,7 @@ instance PersistFieldSql TimeOfDay where
     sqlType _ = SqlTime
 instance PersistFieldSql UTCTime where
     sqlType _ = SqlDayTime
-#if MIN_VERSION_base(4,8,0)
 instance {-# OVERLAPPABLE #-} PersistFieldSql a => PersistFieldSql [a] where
-#else
-instance PersistFieldSql a => PersistFieldSql [a] where
-#endif
     sqlType _ = SqlString
 instance PersistFieldSql a => PersistFieldSql (V.Vector a) where
   sqlType _ = SqlString
@@ -352,10 +403,8 @@ instance (HasResolution a) => PersistFieldSql (Fixed a) where
 instance PersistFieldSql Rational where
     sqlType _ = SqlNumeric 32 20   --  need to make this field big enough to handle Rational to Mumber string conversion for ODBC
 
-#if MIN_VERSION_base(4,8,0)
 instance PersistFieldSql Natural where
   sqlType _ = SqlInt64
-#endif
 
 -- An embedded Entity
 instance (PersistField record, PersistEntity record) => PersistFieldSql (Entity record) where

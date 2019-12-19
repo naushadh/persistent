@@ -1,4 +1,26 @@
+## Unreleased changes
+
+## 2.7.3
+
+* Update module documentation for `Database.Persist.TH` to better describe the purpose of the module [#968](https://github.com/yesodweb/persistent/pull/968)
+* Support template-haskell-2.15 [#959](https://github.com/yesodweb/persistent/pull/959)
+
+## 2.7.2
+
+* Expose the knot tying logic of `parseReferences` so that users can build
+  migrations from independently define entities at runtime [#932](https://github.com/yesodweb/persistent/pull/932)
+
+## 2.7.1
+
+* Add the `mkEntityDefList` function to work around [#902](https://github.com/yesodweb/persistent/issues/902). [#904](https://github.com/yesodweb/persistent/pull/904)
+
+## 2.7.0
+
+* Depends on `persistent-2.10.0` which provides the `OnlyOneUniqueKey` and `AtLeastOneUniqueKey` classes. Automatically generates instances for these classes based on how many unique keys the entity definition gets. This changes requires `UndecidableInstances` to be enabled on each module that generates entity definitions. [#885](https://github.com/yesodweb/persistent/pull/885)
+* Removed deprecated `sqlOnlySettings`. Please use `sqlSettings` instead. [#894](https://github.com/yesodweb/persistent/pull/894)
+
 ## 2.6.0
+* [persistent#846](https://github.com/yesodweb/persistent/pull/846): Improve error message when marshalling fails
 * [persistent#826](https://github.com/yesodweb/persistent/pull/826): Change `Unique` derive `Show`
 
 ## 2.5.4

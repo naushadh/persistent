@@ -1,4 +1,3 @@
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternGuards #-}
 -- | Intended for creating new backends.
 module Database.Persist.Sql.Internal
@@ -6,13 +5,14 @@ module Database.Persist.Sql.Internal
     , defaultAttribute
     ) where
 
-import Database.Persist.Types
-import Database.Persist.Quasi
 import Data.Char (isSpace)
+import Data.Monoid (mappend, mconcat)
 import Data.Text (Text)
 import qualified Data.Text as T
-import Data.Monoid (mappend, mconcat)
+
+import Database.Persist.Quasi
 import Database.Persist.Sql.Types
+import Database.Persist.Types
 
 defaultAttribute :: [Attr] -> Maybe Text
 defaultAttribute [] = Nothing
@@ -61,9 +61,13 @@ mkColumns allDefs t =
             Just (resolveTableName allDefs f, refName tn c)
         | otherwise = Nothing
     ref _ _ ("noreference":_) = Nothing
-    ref c _ (a:_)
-        | Just x <- T.stripPrefix "reference=" a =
-            Just (DBName x, refName tn c)
+    ref c fe (a:as)
+        | Just x <- T.stripPrefix "reference=" a = do
+            constraintName <- snd <$> (ref c fe as)
+            pure (DBName x, constraintName)
+        | Just x <- T.stripPrefix "constraint=" a = do
+            tableName <- fst <$> (ref c fe as)
+            pure (tableName, DBName x)
     ref c x (_:as) = ref c x as
 
 refName :: DBName -> DBName -> DBName
