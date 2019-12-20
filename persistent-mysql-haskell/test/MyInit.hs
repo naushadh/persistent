@@ -93,7 +93,7 @@ runConn f = do
   flip runLoggingT (\_ _ _ s -> printDebug s) $ do
     _ <- if not travis
       then withMySQLPool (mkMySQLConnectInfo "localhost" "test" "test" "test") 1 $ runSqlPool f
-      else withMySQLPool (mkMySQLConnectInfo "localhost" "test" "" "persistent") 1 $ runSqlPool f
+      else withMySQLPool (mkMySQLConnectInfo "localhost" "travis" "" "persistent") 1 $ runSqlPool f
     return ()
 
 db :: SqlPersistT (LoggingT (ResourceT IO)) () -> Assertion
