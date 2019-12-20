@@ -90,10 +90,11 @@ runConn f = do
   travis <- liftIO isTravis
   let debugPrint = not travis && _debugOn
   let printDebug = if debugPrint then print . fromLogStr else void . return
+  let ff = rawExecute "SET SESSION sql_mode = ''" [] >> f
   flip runLoggingT (\_ _ _ s -> printDebug s) $ do
     _ <- if not travis
-      then withMySQLPool (mkMySQLConnectInfo "localhost" "test" "test" "test") 1 $ runSqlPool f
-      else withMySQLPool (mkMySQLConnectInfo "localhost" "travis" "" "persistent") 1 $ runSqlPool f
+      then withMySQLPool (mkMySQLConnectInfo "localhost" "test" "test" "test") 1 $ runSqlPool ff
+      else withMySQLPool (mkMySQLConnectInfo "localhost" "travis" "" "persistent") 1 $ runSqlPool ff
     return ()
 
 db :: SqlPersistT (LoggingT (ResourceT IO)) () -> Assertion
