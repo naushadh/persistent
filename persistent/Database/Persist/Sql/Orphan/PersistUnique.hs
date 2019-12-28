@@ -1,33 +1,32 @@
-{-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE FlexibleContexts #-}
 {-# OPTIONS_GHC -fno-warn-orphans  #-}
-{-# OPTIONS_GHC -fno-warn-unused-imports #-}
-
 module Database.Persist.Sql.Orphan.PersistUnique
   ()
   where
 
 import Control.Exception (throwIO)
 import Control.Monad.IO.Class (liftIO, MonadIO)
+import Control.Monad.Trans.Reader (ask, withReaderT, ReaderT)
+import qualified Data.Conduit.List as CL
+import Data.Function (on)
+import Data.List (nubBy)
+import Data.Monoid (mappend)
+import qualified Data.Text as T
+
 import Database.Persist
-import Database.Persist.Class.PersistUnique (defaultPutMany, persistUniqueKeyValues)
+import Database.Persist.Class.PersistUnique (defaultPutMany, persistUniqueKeyValues, onlyOneUniqueDef)
 import Database.Persist.Sql.Types
 import Database.Persist.Sql.Raw
 import Database.Persist.Sql.Orphan.PersistStore (withRawQuery)
 import Database.Persist.Sql.Util (dbColumns, parseEntityValues, updatePersistValue, mkUpdateText')
-import qualified Data.Text as T
-import Data.Monoid (mappend)
-import qualified Data.Conduit.List as CL
-import Control.Monad.Trans.Reader (ask, withReaderT, ReaderT)
-import Data.List (nubBy)
-import Data.Function (on)
 
 defaultUpsert
-    :: (MonadIO m
-       ,PersistEntity record
-       ,PersistUniqueWrite backend
-       ,PersistEntityBackend record ~ BaseBackend backend)
+    ::
+    ( MonadIO m
+    , PersistEntity record
+    , PersistUniqueWrite backend
+    , PersistEntityBackend record ~ BaseBackend backend
+    , OnlyOneUniqueKey record
+    )
     => record -> [Update record] -> ReaderT backend m (Entity record)
 defaultUpsert record updates = do
     uniqueKey <- onlyUnique record
@@ -45,7 +44,7 @@ instance PersistUniqueWrite SqlBackend where
                             [] -> defaultUpsert record updates
                             _:_ -> do
                                 let upds = T.intercalate "," $ map mkUpdateText updates
-                                    sql = upsertSql t upds
+                                    sql = upsertSql t (pure (onlyOneUniqueDef (Just record))) upds
                                     vals = map toPersistValue (toPersistFields record)
                                         ++ map updatePersistValue updates
                                         ++ unqs uniqueKey
@@ -75,14 +74,20 @@ instance PersistUniqueWrite SqlBackend where
 
     putMany [] = return ()
     putMany rsD = do
-        conn <- ask
-        let rs = nubBy ((==) `on` persistUniqueKeyValues) (reverse rsD)
-        let ent = entityDef rs
-        let nr  = length rs
-        let toVals r = map toPersistValue $ toPersistFields r
-        case connPutManySql conn of
-            (Just mkSql) -> rawExecute (mkSql ent nr) (concatMap toVals rs)
-            Nothing -> defaultPutMany rs
+        let uKeys = persistUniqueKeys . head $ rsD
+        case uKeys of
+            [] -> insertMany_ rsD
+            _ -> go
+        where
+          go = do
+            let rs = nubBy ((==) `on` persistUniqueKeyValues) (reverse rsD)
+            let ent = entityDef rs
+            let nr  = length rs
+            let toVals r = map toPersistValue $ toPersistFields r
+            conn <- ask
+            case connPutManySql conn of
+                (Just mkSql) -> rawExecute (mkSql ent nr) (concatMap toVals rs)
+                Nothing -> defaultPutMany rs
 
 instance PersistUniqueWrite SqlWriteBackend where
     deleteBy uniq = withReaderT persistBackend $ deleteBy uniq

@@ -1,5 +1,3 @@
-{-# LANGUAGE CPP #-}
-{-# LANGUAGE FlexibleContexts #-}
 module Database.Persist.Sql.Migration
   ( parseMigration
   , parseMigration'
@@ -7,21 +5,30 @@ module Database.Persist.Sql.Migration
   , showMigration
   , getMigration
   , runMigration
+  , runMigrationQuiet
   , runMigrationSilent
   , runMigrationUnsafe
+  , runMigrationUnsafeQuiet
   , migrate
+  -- * Utilities for constructing migrations
+  , reportErrors
+  , reportError
+  , addMigrations
+  , addMigration
   ) where
 
 
-import Control.Monad.Trans.Class (MonadTrans (..))
-import Control.Monad.IO.Unlift
-import Control.Monad.Trans.Writer
-import Control.Monad.Trans.Reader (ReaderT (..), ask)
+import Control.Exception (throwIO)
 import Control.Monad (liftM, unless)
+import Control.Monad.IO.Unlift
+import Control.Monad.Trans.Class (MonadTrans (..))
+import Control.Monad.Trans.Reader (ReaderT (..), ask)
+import Control.Monad.Trans.Writer
 import Data.Text (Text, unpack, snoc, isPrefixOf, pack)
 import qualified Data.Text.IO
 import System.IO
 import System.IO.Silently (hSilence)
+
 import Database.Persist.Sql.Types
 import Database.Persist.Sql.Raw
 import Database.Persist.Types
@@ -76,9 +83,27 @@ runMigration :: MonadIO m
              -> ReaderT SqlBackend m ()
 runMigration m = runMigration' m False >> return ()
 
+-- | Same as 'runMigration', but does not report the individual migrations on
+-- stderr. Instead it returns a list of the executed SQL commands.
+--
+-- This is a safer/more robust alternative to 'runMigrationSilent', but may be
+-- less silent for some persistent implementations, most notably
+-- persistent-postgresql
+--
+-- @since 2.10.2
+runMigrationQuiet :: MonadIO m
+                  => Migration
+                  -> ReaderT SqlBackend m [Text]
+runMigrationQuiet m = runMigration' m True
+
 -- | Same as 'runMigration', but returns a list of the SQL commands executed
 -- instead of printing them to stderr.
-runMigrationSilent :: (MonadUnliftIO m, MonadIO m)
+--
+-- This function silences the migration by remapping 'stderr'. As a result, it
+-- is not thread-safe and can clobber output from other parts of the program.
+-- This implementation method was chosen to also silence postgresql migration
+-- output on stderr, but is not recommended!
+runMigrationSilent :: MonadUnliftIO m
                    => Migration
                    -> ReaderT SqlBackend m [Text]
 runMigrationSilent m = withRunInIO $ \run ->
@@ -95,7 +120,7 @@ runMigration'
 runMigration' m silent = do
     mig <- parseMigration' m
     if any fst mig
-        then error $ concat
+        then liftIO . throwIO . PersistError . pack $ concat
                  [ "\n\nDatabase migration: manual intervention required.\n"
                  , "The unsafe actions are prefixed by '***' below:\n\n"
                  , unlines $ map displayMigration mig
@@ -111,9 +136,24 @@ runMigration' m silent = do
 runMigrationUnsafe :: MonadIO m
                    => Migration
                    -> ReaderT SqlBackend m ()
-runMigrationUnsafe m = do
+runMigrationUnsafe m = runMigrationUnsafe' False m >> return ()
+
+-- | Same as 'runMigrationUnsafe', but returns a list of the SQL commands
+-- executed instead of printing them to stderr.
+--
+-- @since 2.10.2
+runMigrationUnsafeQuiet :: MonadIO m
+                        => Migration
+                        -> ReaderT SqlBackend m [Text]
+runMigrationUnsafeQuiet = runMigrationUnsafe' True
+
+runMigrationUnsafe' :: MonadIO m
+                    => Bool
+                    -> Migration
+                    -> ReaderT SqlBackend m [Text]
+runMigrationUnsafe' silent m = do
     mig <- parseMigration' m
-    mapM_ (executeMigrate False) $ sortMigrations $ allSql mig
+    mapM (executeMigrate silent) $ sortMigrations $ allSql mig
 
 executeMigrate :: MonadIO m => Bool -> Text -> ReaderT SqlBackend m Text
 executeMigrate silent s = do
@@ -140,4 +180,37 @@ migrate :: [EntityDef]
 migrate allDefs val = do
     conn <- lift $ lift ask
     res <- liftIO $ connMigrateSql conn allDefs (getStmtConn conn) val
-    either tell (lift . tell) res
+    either reportErrors addMigrations res
+
+-- | Report a single error in a 'Migration'.
+--
+-- @since 2.9.2
+reportError :: Text -> Migration
+reportError = tell . pure
+
+-- | Report multiple errors in a 'Migration'.
+--
+-- @since 2.9.2
+reportErrors :: [Text] -> Migration
+reportErrors = tell
+
+-- | Add a migration to the migration plan.
+--
+-- @since 2.9.2
+addMigration
+    :: Bool
+    -- ^ Is the migration safe to run? (eg a non-destructive and idempotent
+    -- update on the schema)
+    -> Sql
+    -- ^ A 'Text' value representing the command to run on the database.
+    -> Migration
+addMigration isSafe sql = lift (tell [(isSafe, sql)])
+
+-- | Add a 'CautiousMigration' (aka a @[('Bool', 'Text')]@) to the
+-- migration plan.
+--
+-- @since 2.9.2
+addMigrations
+    :: CautiousMigration
+    -> Migration
+addMigrations = lift . tell

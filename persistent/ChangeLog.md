@@ -1,5 +1,40 @@
 # Changelog for persistent
 
+## 2.10.4
+
+* Log exceptions when closing a connection fails. See point 1 in [yesod #1635](https://github.com/yesodweb/yesod/issues/1635#issuecomment-547300856). [#978](https://github.com/yesodweb/persistent/pull/978)
+
+## 2.10.3
+
+* Added support for GHC 8.8 about MonadFail changes [#976](https://github.com/yesodweb/persistent/pull/976)
+
+## 2.10.2
+
+* Added `runMigrationQuiet` and `runMigrationUnsafeQuiet` to `Database.Persist.Sql.Migration` as safer alternatives to `runMigrationSilent`. [#971](https://github.com/yesodweb/persistent/pull/971)
+  This functions as workaround/fix for: [#966](https://github.com/yesodweb/persistent/issues/966), [#948](https://github.com/yesodweb/persistent/issues/948), [#640](https://github.com/yesodweb/persistent/issues/640), and [#474](https://github.com/yesodweb/persistent/issues/474)
+* Added RawSql instances for 9, 10, 11 and 12-column results. [#961](https://github.com/yesodweb/persistent/pull/961)
+
+## 2.10.1
+
+* Added `constraint=` attribute to allow users to specify foreign reference constraint names.
+
+## 2.10.0
+
+* Added two type classes `OnlyOneUniqueKey` and `AtLeastOneUniqueKey`. These classes are used as constraints on functions that expect a certain amount of unique keys. They are defined automatically as part of the `persistent-template`'s generation. [#885](https://github.com/yesodweb/persistent/pull/885)
+* Add the `entityComments` field to the `EntityDef` datatype, and `fieldComments` fields to the `FieldDef` datatype. The QuasiQuoter does not currently know how to add documentation comments to these types, but it can be expanded later. [#865](https://github.com/yesodweb/persistent/pull/865)
+* Expose the `SqlReadT` and `SqlWriteT` constructors. [#887](https://github.com/yesodweb/persistent/pull/887)
+* Remove deprecated `Connection` type synonym. Please use `SqlBackend` instead. [#894](https://github.com/yesodweb/persistent/pull/894)
+* Remove deprecated `SqlPersist` type synonym. Please use `SqlPersistT` instead. [#894](https://github.com/yesodweb/persistent/pull/894)
+* Alter the type of `connUpsertSql` to take a list of unique definitions. This paves the way for more efficient upsert implementations. [#895](https://github.com/yesodweb/persistent/pull/895)
+
+## 2.9.2
+
+* Add documentation for the `Migration` type and some helpers. [#860](https://github.com/yesodweb/persistent/pull/860)
+
+## 2.9.1
+
+* Fix [#847](https://github.com/yesodweb/persistent/issues/847): SQL error with `putMany` on Sqlite when Entity has no unique index.
+
 ## 2.9.0
 
 * Added support for SQL isolation levels to via SqlBackend. [#812]

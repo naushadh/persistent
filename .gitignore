@@ -25,6 +25,8 @@ tarballs/
 cabal-dev/
 cabal.sandbox.config
 .cabal-sandbox/
+dist-newstyle/
+.ghc.environment.*
 
 ## Docker image ignores
 /.cabal/
@@ -47,3 +49,5 @@ persistent-test/db/
 
 # hspec nonsense
 .hspec-failures
+
+stack.yaml.lock

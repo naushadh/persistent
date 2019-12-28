@@ -1,5 +1,47 @@
 # Changelog for persistent-sqlite
 
+## 2.10.5
+
+* Foreign keys table constraints are correctly generated [#945](https://github.com/yesodweb/persistent/pull/945) @kderme
+
+## 2.10.4
+
+* Fix bug with 2.10.3 and 2.10.2 that caused the `RawSqlite` loop. [#934](https://github.com/yesodweb/persistent/pull/934) @merijn
+
+## 2.10.3
+
+* Unique constraints are correctly generated. [#922](https://github.com/yesodweb/persistent/pull/922) @kderme
+
+## 2.10.2
+
+* Add a new `RawSqlite` type and `withRawSqliteConnInfo` function that allow  access to the underlying Sqlite `Connection` type. [#772](https://github.com/yesodweb/persistent/pull/772)
+* Expose the internals of `Connection` in an Internal module, allowing the user to call SQLite functions via the C FFI. [#772](https://github.com/yesodweb/persistent/pull/772)
+* Add a flag for SQLITE_STAT4 and enable it by default, allowing for better query optimisation when using ANALYZE. This breaks the query planner stability guarantee, but the required flag for that isn't enabled or exposed by persistent. Only affects the vendored SQLite library, has no effect when using system SQLite.
+* Add support for migrating entities with composite primary keys. Fixes [#669](https://github.com/yesodweb/persistent/issues/669)
+* Fix a bug when using the `Filter` datatype directly. See [#915](https://github.com/yesodweb/persistent/pull/915) for more details.
+
+## 2.10.1
+
+* Add support for reading text values with null characters from the database. Fixes [#921](https://github.com/yesodweb/persistent/issues/921)
+
+## 2.10.0
+
+* Updated for `persistent-2.10.0` compatibility.
+
+## 2.9.3
+
+* Add retry-on-busy support, automatically retrying when sqlite returns a busy
+  error on enabling WAL mode, and providing helper `retryOnBusy` and
+  `waitForDatabase` identifiers.
+
+## 2.9.2
+
+* Add enableExtendedResultCodes and disableExtendedResultCodes functions
+
+## 2.9.1
+
+* Bump vendored SQLite library to [3.26.0](https://www.sqlite.org/releaselog/3_26_0.html) to address [RCE bug: `magellan`](https://blade.tencent.com/magellan/index_en.html).
+
 ## 2.9.0
 
 * Added support for SQL isolation levels to via SqlBackend. [#812] SQLite technically only supports Serializable.

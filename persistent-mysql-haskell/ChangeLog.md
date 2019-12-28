@@ -1,5 +1,11 @@
 # ChangeLog for `persistent-mysql-haskell`
 
+## 0.6.0
+
+- Port [#977](https://github.com/yesodweb/persistent/pull/977) from `persistent-mysql`: Support Stackage Nightly
+- Added `constraint=` attribute to allow users to specify foreign reference constraint names.
+- Port [#894](https://github.com/yesodweb/persistent/pull/894) from `persistent-mysql`: Remove deprecated `SomeField` type and pattern synonym. Use `HandleUpdateCollision` type instead and the `copyField` function instead of `SomeField`   constructor/pattern.
+
 ## 0.5.2
 
 - Fix [stackage#4312](https://github.com/commercialhaskell/stackage/issues/4312): Relax `network` version bound.
