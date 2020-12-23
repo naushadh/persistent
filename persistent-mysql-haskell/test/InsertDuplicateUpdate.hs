@@ -5,6 +5,9 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE StandaloneDeriving #-}
+
 
 module InsertDuplicateUpdate where
 
