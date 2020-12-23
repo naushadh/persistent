@@ -1,5 +1,8 @@
 # ChangeLog for `persistent-mysql-haskell`
 
+## 0.6.1
+- Fix [#13](https://github.com/naushadh/persistent/pull/13) Make it build on nixos 20.09
+
 ## 0.6.0
 
 - Port [#977](https://github.com/yesodweb/persistent/pull/977) from `persistent-mysql`: Support Stackage Nightly
