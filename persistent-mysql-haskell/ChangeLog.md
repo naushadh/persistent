@@ -1,5 +1,9 @@
 # ChangeLog for `persistent-mysql-haskell`
 
+## 0.6.1
+
+- [#14](https://github.com/naushadh/persistent/pull/14) Loosened constraints around `SqlBackend`
+
 ## 0.6.0
 
 - Port [#977](https://github.com/yesodweb/persistent/pull/977) from `persistent-mysql`: Support Stackage Nightly
